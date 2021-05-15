@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"io"
 	"io/ioutil"
 	"net"
@@ -23,14 +22,6 @@ import (
 	"github.com/tinkerbell/boots/job"
 	"github.com/tinkerbell/boots/metrics"
 )
-
-var (
-	httpAddr = conf.HTTPBind
-)
-
-func init() {
-	flag.StringVar(&httpAddr, "http-addr", httpAddr, "IP and port to listen on for HTTP.")
-}
 
 func serveHealthchecker(rev string, start time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
@@ -55,7 +46,7 @@ func serveHealthchecker(rev string, start time.Time) http.HandlerFunc {
 }
 
 // ServeHTTP is a useless comment
-func ServeHTTP() {
+func ServeHTTP(httpAddr string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", serveJobFile)
 	mux.Handle("/metrics", promhttp.Handler())

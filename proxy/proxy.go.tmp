@@ -1,0 +1,237 @@
+package proxy
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+
+	"github.com/packethost/pkg/log"
+	"go.universe.tf/netboot/dhcp4"
+	"golang.org/x/net/ipv4"
+)
+
+// Firmware describes a kind of firmware attempting to boot.
+//
+// This should only be used for selecting the right bootloader within
+// Pixiecore, kernel selection should key off the more generic
+// Architecture.
+type Firmware int
+
+// The bootloaders that Pixiecore knows how to handle.
+const (
+	FirmwareX86PC   Firmware = iota // "Classic" x86 BIOS with PXE/UNDI support
+	FirmwareEFI32                   // 32-bit x86 processor running EFI
+	FirmwareEFI64                   // 64-bit x86 processor running EFI
+	FirmwareEFIBC                   // 64-bit x86 processor running EFI
+	FirmwareX86Ipxe                 // "Classic" x86 BIOS running iPXE (no UNDI support)
+)
+
+func Serve(ctx context.Context, logger log.Logger, listenAddr string) error {
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("exiting proxyDHCP")
+			return nil
+		default:
+			s := &Server{logger: logger}
+			pxe, err := net.ListenPacket("udp4", listenAddr)
+			if err != nil {
+				return err
+			}
+			defer pxe.Close()
+			err = s.servePXE(ctx, pxe)
+			return err
+		}
+	}
+}
+
+type Server struct {
+	logger log.Logger
+	// Ipxe lists the supported bootable Firmwares, and their
+	// associated ipxe binary.
+	Ipxe map[Firmware][]byte
+}
+
+func (s *Server) servePXE(ctx context.Context, conn net.PacketConn) error {
+	buf := make([]byte, 1024)
+	l := ipv4.NewPacketConn(conn)
+	if err := l.SetControlMessage(ipv4.FlagInterface, true); err != nil {
+		return fmt.Errorf("Couldn't get interface metadata on PXE port: %s", err)
+	}
+	fmt.Println("here 1")
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			n, msg, addr, err := l.ReadFrom(buf)
+			if err != nil {
+				s.logger.Info(fmt.Sprintf("Receiving packet: %s", err))
+				continue
+				//return fmt.Errorf("Receiving packet: %s", err)
+			}
+
+			pkt, err := dhcp4.Unmarshal(buf[:n])
+			if err != nil {
+				s.logger.Info(fmt.Sprintf("Packet from %s is not a DHCP packet: %s", addr, err))
+				continue
+			}
+
+			if err = s.isBootDHCP(pkt); err != nil {
+				s.logger.Info(fmt.Sprintf("Ignoring packet from %s (%s): %s", pkt.HardwareAddr, addr, err))
+			}
+			fwtype, err := s.validatePXE(pkt)
+			if err != nil {
+				s.logger.Info(fmt.Sprintf("Unusable packet from %s (%s): %s", pkt.HardwareAddr, addr, err))
+				continue
+			}
+
+			intf, err := net.InterfaceByIndex(msg.IfIndex)
+			if err != nil {
+				s.logger.Info(fmt.Sprintf("Couldn't get information about local network interface %d: %s", msg.IfIndex, err))
+				continue
+			}
+
+			serverIP, err := interfaceIP(intf)
+			if err != nil {
+				s.logger.Info(fmt.Sprintf("Want to boot %s (%s) on %s, but couldn't get a source address: %s", pkt.HardwareAddr, addr, intf.Name, err))
+				continue
+			}
+
+			//s.machineEvent(pkt.HardwareAddr, machineStatePXE, "Sent PXE configuration")
+
+			resp, err := s.offerPXE(pkt, serverIP, fwtype)
+			if err != nil {
+				s.logger.Info(fmt.Sprintf("Failed to construct PXE offer for %s (%s): %s", pkt.HardwareAddr, addr, err))
+				continue
+			}
+
+			bs, err := resp.Marshal()
+			if err != nil {
+				s.logger.Info(fmt.Sprintf("Failed to marshal PXE offer for %s (%s): %s", pkt.HardwareAddr, addr, err))
+				continue
+			}
+
+			if _, err := l.WriteTo(bs, &ipv4.ControlMessage{
+				IfIndex: msg.IfIndex,
+			}, addr); err != nil {
+				s.logger.Info(fmt.Sprintf("Failed to send PXE response to %s (%s): %s", pkt.HardwareAddr, addr, err))
+			}
+			fmt.Println("end")
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+}
+
+func (s *Server) isBootDHCP(pkt *dhcp4.Packet) error {
+	if pkt.Type != dhcp4.MsgDiscover {
+		return fmt.Errorf("packet is %s, not %s", pkt.Type, dhcp4.MsgDiscover)
+	}
+
+	if pkt.Options[93] == nil {
+		return errors.New("not a PXE boot request (missing option 93)")
+	}
+
+	return nil
+}
+
+func (s *Server) validatePXE(pkt *dhcp4.Packet) (fwtype Firmware, err error) {
+	fwt, err := pkt.Options.Uint16(93)
+	if err != nil {
+		return 0, fmt.Errorf("malformed DHCP option 93 (required for PXE): %s", err)
+	}
+	s.Ipxe = make(map[Firmware][]byte)
+	s.Ipxe[FirmwareEFI64] = []byte("/nothing")
+	switch fwt {
+	case 6:
+		fwtype = FirmwareEFI32
+	case 7:
+		fwtype = FirmwareEFI64
+	case 9:
+		fwtype = FirmwareEFIBC
+	default:
+		fwtype = FirmwareEFI64
+		//return 0, fmt.Errorf("1 unsupported client firmware type '%d' (please file a bug!)", fwt)
+	}
+	if s.Ipxe[fwtype] == nil {
+		return 0, fmt.Errorf("2 unsupported client firmware type '%d' (please file a bug!)", fwtype)
+	}
+
+	guid := pkt.Options[97]
+	switch len(guid) {
+	case 0:
+		// Accept missing GUIDs even though it's a spec violation,
+		// same as in dhcp.go.
+	case 17:
+		if guid[0] != 0 {
+			return 0, errors.New("malformed client GUID (option 97), leading byte must be zero")
+		}
+	default:
+		return 0, errors.New("malformed client GUID (option 97), wrong size")
+	}
+
+	return fwtype, nil
+}
+
+func (s *Server) offerPXE(pkt *dhcp4.Packet, serverIP net.IP, fwtype Firmware) (resp *dhcp4.Packet, err error) {
+	resp = &dhcp4.Packet{
+		Type:           dhcp4.MsgAck,
+		TransactionID:  pkt.TransactionID,
+		HardwareAddr:   pkt.HardwareAddr,
+		ClientAddr:     pkt.ClientAddr,
+		RelayAddr:      pkt.RelayAddr,
+		ServerAddr:     serverIP,
+		BootServerName: serverIP.String(),
+		BootFilename:   "/nonexistent", //fmt.Sprintf("%s/%d", pkt.HardwareAddr, fwtype),
+		Options: dhcp4.Options{
+			dhcp4.OptServerIdentifier: serverIP,
+			dhcp4.OptVendorIdentifier: []byte("PXEClient"),
+		},
+	}
+	if pkt.Options[97] != nil {
+		resp.Options[97] = pkt.Options[97]
+	}
+
+	return resp, nil
+}
+
+func interfaceIP(intf *net.Interface) (net.IP, error) {
+	addrs, err := intf.Addrs()
+	if err != nil {
+		return nil, err
+	}
+
+	// Try to find an IPv4 address to use, in the following order:
+	// global unicast (includes rfc1918), link-local unicast,
+	// loopback.
+	fs := [](func(net.IP) bool){
+		net.IP.IsGlobalUnicast,
+		net.IP.IsLinkLocalUnicast,
+		net.IP.IsLoopback,
+	}
+	for _, f := range fs {
+		for _, a := range addrs {
+			ipaddr, ok := a.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipaddr.IP.To4()
+			if ip == nil {
+				continue
+			}
+			if f(ip) {
+				return ip, nil
+			}
+		}
+	}
+
+	return nil, errors.New("no usable unicast address configured on interface")
+}

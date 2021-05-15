@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"runtime"
 
 	"github.com/avast/retry-go"
@@ -15,14 +14,8 @@ import (
 	"github.com/tinkerbell/boots/metrics"
 )
 
-var listenAddr = conf.BOOTPBind
-
-func init() {
-	flag.StringVar(&listenAddr, "dhcp-addr", listenAddr, "IP and port to listen on for DHCP.")
-}
-
 // ServeDHCP is a useless comment
-func ServeDHCP() {
+func ServeDHCP(listenAddr string) {
 	poolSize := env.Int("BOOTS_DHCP_WORKERS", runtime.GOMAXPROCS(0)/2)
 	handler := dhcpHandler{pool: workerpool.New(poolSize)}
 	defer handler.pool.Stop()

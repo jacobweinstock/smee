@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"io"
 	"net"
 	"os"
@@ -11,22 +10,13 @@ import (
 	"github.com/packethost/pkg/log"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/tinkerbell/boots/conf"
 	"github.com/tinkerbell/boots/job"
 	"github.com/tinkerbell/boots/metrics"
 	tftp "github.com/tinkerbell/tftp-go"
 )
 
-var (
-	tftpAddr = conf.TFTPBind
-)
-
-func init() {
-	flag.StringVar(&tftpAddr, "tftp-addr", tftpAddr, "IP and port to listen on for TFTP.")
-}
-
 // ServeTFTP is a useless comment
-func ServeTFTP() {
+func ServeTFTP(tftpAddr string) {
 	err := retry.Do(
 		func() error {
 			return errors.Wrap(tftp.ListenAndServe(tftpAddr, tftpHandler{}), "serving tftp")
