@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -46,7 +47,7 @@ func serveHealthchecker(rev string, start time.Time) http.HandlerFunc {
 }
 
 // ServeHTTP is a useless comment
-func ServeHTTP(httpAddr string) {
+func ServeHTTP(ctx context.Context, httpAddr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", serveJobFile)
 	mux.Handle("/metrics", promhttp.Handler())
@@ -88,10 +89,20 @@ func ServeHTTP(httpAddr string) {
 		}
 	}
 
-	if err := http.ListenAndServe(httpAddr, h); err != nil {
-		err = errors.Wrap(err, "listen and serve http")
-		mainlog.Fatal(err)
+	httpServer := &http.Server{
+		Addr:        httpAddr,
+		Handler:     h,
+		BaseContext: func(_ net.Listener) context.Context { return ctx },
 	}
+
+	go func() {
+		<-ctx.Done()
+		httpServer.Shutdown(ctx)
+	}()
+
+	return httpServer.ListenAndServe()
+
+	//return http.ListenAndServe(httpAddr, h)
 }
 
 func serveJobFile(w http.ResponseWriter, req *http.Request) {

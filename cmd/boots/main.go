@@ -3,14 +3,18 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/avast/retry-go"
 	"github.com/packethost/pkg/env"
 	"github.com/packethost/pkg/log"
 	"github.com/peterbourgon/ff/v3"
+	"github.com/pkg/errors"
 	"github.com/tinkerbell/boots/conf"
 	"github.com/tinkerbell/boots/dhcp"
 	"github.com/tinkerbell/boots/httplog"
@@ -21,6 +25,7 @@ import (
 	"github.com/tinkerbell/boots/proxy"
 	"github.com/tinkerbell/boots/syslog"
 	"github.com/tinkerbell/boots/tftp"
+	"golang.org/x/sync/errgroup"
 
 	_ "github.com/tinkerbell/boots/installers/coreos"
 	_ "github.com/tinkerbell/boots/installers/custom_ipxe"
@@ -48,8 +53,7 @@ func main() {
 		httpAddr      = fs.String("http-addr", conf.HTTPBind, "IP and port to listen on for HTTP.")
 		tftpAddr      = fs.String("tftp-addr", conf.TFTPBind, "IP and port to listen on for TFTP.")
 		proxyDHCPAddr = fs.String("proxyDHCP-addr", conf.ProxyDHCP, "IP and port to listen on for proxyDHCP requests.")
-		disableDHCP   = fs.Bool("disableDHCP", false, "Disable serving DHCP")
-		disablePXE    = fs.Bool("disablePXE", false, "Disable serving PXE")
+		proxyDHCP     = fs.Bool("proxyDHCP", false, "Enables proxyDHCP only")
 	)
 	ff.Parse(fs, os.Args[1:])
 
@@ -85,52 +89,86 @@ func main() {
 	syslog.Init(l)
 	tftp.Init(l)
 	mainlog.With("version", GitRev).Info("starting")
-	/*
-		consumer := env.Get("API_CONSUMER_TOKEN")
-		if consumer == "" {
-			err := errors.New("required envvar missing")
-			mainlog.With("envvar", "API_CONSUMER_TOKEN").Fatal(err)
-			panic(err)
-		}
-		auth := env.Get("API_AUTH_TOKEN")
-		if auth == "" {
-			err := errors.New("required envvar missing")
-			mainlog.With("envvar", "API_AUTH_TOKEN").Fatal(err)
-			panic(err)
-		}
-		client, err = packet.NewClient(consumer, auth, apiBaseURL)
+
+	consumer := env.Get("API_CONSUMER_TOKEN")
+	if consumer == "" {
+		err := errors.New("required envvar missing")
+		mainlog.With("envvar", "API_CONSUMER_TOKEN").Fatal(err)
+		panic(err)
+	}
+	auth := env.Get("API_AUTH_TOKEN")
+	if auth == "" {
+		err := errors.New("required envvar missing")
+		mainlog.With("envvar", "API_AUTH_TOKEN").Fatal(err)
+		panic(err)
+	}
+
+	go func() {
+		mainlog.Info("serving syslog")
+		err = retry.Do(
+			func() error {
+				_, err := syslog.StartReceiver(1)
+				return err
+			},
+		)
 		if err != nil {
-			mainlog.Fatal(err)
+			mainlog.Fatal(errors.Wrap(err, "retry syslog serve"))
 		}
-		job.SetClient(client)
-		job.SetProvisionerEngineName(provisionerEngineName)
-
-		go func() {
-			mainlog.Info("serving syslog")
-			err = retry.Do(
-				func() error {
-					_, err := syslog.StartReceiver(1)
-					return err
-				},
-			)
-			if err != nil {
-				mainlog.Fatal(errors.Wrap(err, "retry syslog serve"))
-			}
-		}()
-	*/
-
-	if !*disableDHCP {
-		mainlog.With("address", dhcpAddr).Info("serving dhcp")
-		go ServeDHCP(*dhcpAddr)
+	}()
+	client, err = packet.NewClient(consumer, auth, apiBaseURL)
+	if err != nil {
+		mainlog.Fatal(err)
 	}
-	if !*disablePXE {
-		mainlog.With("address", tftpAddr).Info("serving tftp")
-		go ServeTFTP(*tftpAddr)
-		mainlog.With("address", httpAddr).Info("serving http")
-		go ServeHTTP(*httpAddr)
+	job.SetClient(client)
+	g, ctx := errgroup.WithContext(ctx)
+	if *proxyDHCP {
 		mainlog.With("address", *proxyDHCPAddr).Info("serving proxyDHCP")
-		go proxy.Serve(ctx, mainlog, *proxyDHCPAddr)
+		g.Go(func() error { return runProxyDHCP(ctx, mainlog, *proxyDHCPAddr, *tftpAddr, *httpAddr) })
+	} else {
+		job.SetProvisionerEngineName(provisionerEngineName)
+		mainlog.With("address", dhcpAddr).Info("serving dhcp")
+		g.Go(func() error { return ServeDHCP(ctx, *dhcpAddr) })
 	}
-	<-ctx.Done()
-	mainlog.Info("shutting down")
+	mainlog.With("address", tftpAddr).Info("serving tftp")
+	g.Go(func() error { return ServeTFTP(ctx, *tftpAddr) })
+	mainlog.With("address", httpAddr).Info("serving http")
+	g.Go(func() error { return ServeHTTP(ctx, *httpAddr) })
+
+	err = g.Wait()
+	if errors.Is(err, context.Canceled) {
+		mainlog.Error(err, "signal caught")
+	} else if err != nil {
+		mainlog.Error(err, "services failed")
+	}
+	mainlog.Info("boots shutdown")
+}
+
+// runProxyDHCP is a place holder for proxyDHCP being a proper subcommand
+// its goal is to serves proxyDHCP requests
+func runProxyDHCP(ctx context.Context, logger log.Logger, listenAddr, tftpAddr, httpAddr string) error {
+	bootfile := func(arch, userClass, hardwareID string) string {
+		// business logic of what to give a pxe client
+		// lookup hardware id in tink for
+		filename := "/nonexistent"
+		switch strings.ToLower(userClass) {
+		case "ipxe", "tinkerbell":
+			filename = fmt.Sprintf("http://%v/auto.ipxe", httpAddr)
+		default:
+			switch strings.ToLower(arch) {
+			case "hua", "2a2":
+				filename = "snp-hua.efi"
+			case "aarch64":
+				filename = "snp-nolacp.efi"
+			case "uefi":
+				filename = "ipxe.efi"
+			default:
+				filename = "undionly.kpxe"
+			}
+		}
+		return filename
+	}
+	bootserver := func() string {
+		return tftpAddr
+	}
+	return proxy.Serve(ctx, mainlog, listenAddr, bootfile, bootserver)
 }

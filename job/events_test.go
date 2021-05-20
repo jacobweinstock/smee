@@ -1,7 +1,6 @@
 package job
 
 import (
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +25,6 @@ func TestPhoneHome(t *testing.T) {
 			t.Fatalf("unexpected method: %s", r.Method)
 		}
 		reqs = append(reqs, req{r.Method, r.URL.String(), string(body)})
-		fmt.Println()
 
 		w.Write([]byte(`{"id":"event-id"}`))
 	}))

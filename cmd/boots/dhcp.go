@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"runtime"
 
-	"github.com/avast/retry-go"
 	"github.com/gammazero/workerpool"
 	dhcp4 "github.com/packethost/dhcp4-go"
 	"github.com/packethost/pkg/env"
@@ -15,19 +15,22 @@ import (
 )
 
 // ServeDHCP is a useless comment
-func ServeDHCP(listenAddr string) {
+func ServeDHCP(ctx context.Context, listenAddr string) error {
 	poolSize := env.Int("BOOTS_DHCP_WORKERS", runtime.GOMAXPROCS(0)/2)
 	handler := dhcpHandler{pool: workerpool.New(poolSize)}
 	defer handler.pool.Stop()
-
-	err := retry.Do(
-		func() error {
-			return errors.Wrap(dhcp4.ListenAndServe(listenAddr, handler), "serving dhcp")
-		},
-	)
-	if err != nil {
-		mainlog.Fatal(errors.Wrap(err, "retry dhcp serve"))
+	err := make(chan error, 1)
+	go func() {
+		err <- dhcp4.ListenAndServe(listenAddr, handler)
+	}()
+	var finalErr error
+	select {
+	case <-ctx.Done():
+		finalErr = ctx.Err()
+	case e := <-err:
+		finalErr = e
 	}
+	return finalErr
 }
 
 type dhcpHandler struct {

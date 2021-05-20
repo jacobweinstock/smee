@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/packethost/pkg/log"
 	"go.universe.tf/netboot/dhcp4"
@@ -17,6 +18,15 @@ import (
 // Architecture.
 type Firmware int
 
+// Architecture describes a kind of CPU architecture.
+type Architecture int
+
+// A Machine describes a machine that is attempting to boot.
+type Machine struct {
+	MAC  net.HardwareAddr
+	Arch Architecture
+}
+
 // The bootloaders that Pixiecore knows how to handle.
 const (
 	FirmwareX86PC         Firmware = iota // "Classic" x86 BIOS with PXE/UNDI support
@@ -25,107 +35,7 @@ const (
 	FirmwareEFIBC                         // 64-bit x86 processor running EFI
 	FirmwareX86Ipxe                       // "Classic" x86 BIOS running iPXE (no UNDI support)
 	FirmwarePixiecoreIpxe                 // Pixiecore's iPXE, which has replaced the underlying firmware
-
 )
-
-func Serve(ctx context.Context, logger log.Logger, listenAddr string) error {
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("exiting proxyDHCP")
-			return nil
-		default:
-			s := &Server{logger: logger, HTTPPort: "8080"}
-			newDHCP, err := dhcp4.NewConn(listenAddr)
-			if err != nil {
-				return err
-			}
-			defer newDHCP.Close()
-			err = s.serveProxyDHCP(ctx, newDHCP)
-			return err
-		}
-	}
-}
-
-type Server struct {
-	logger log.Logger
-	// Ipxe lists the supported bootable Firmwares, and their
-	// associated ipxe binary.
-	Ipxe     map[Firmware][]byte
-	HTTPPort string
-}
-
-func (s *Server) serveProxyDHCP(ctx context.Context, conn *dhcp4.Conn) error {
-
-	go func() {
-		for {
-			pkt, intf, err := conn.RecvDHCP()
-			if err != nil {
-				continue
-				//return fmt.Errorf("Receiving DHCP packet: %s", err)
-			}
-			if intf == nil {
-				continue
-				//return fmt.Errorf("Received DHCP packet with no interface information (this is a violation of dhcp4.Conn's contract, please file a bug)")
-			}
-
-			if err = s.isBootDHCP(pkt); err != nil {
-				s.logger.Info(fmt.Sprintf("Ignoring packet from %s: %s", pkt.HardwareAddr, err))
-				continue
-			}
-			mach, fwtype, err := s.validateDHCP(pkt)
-			if err != nil {
-				s.logger.Info(fmt.Sprintf("Unusable packet from %s: %s", pkt.HardwareAddr, err))
-				continue
-			}
-
-			s.logger.Info(fmt.Sprintf("Got valid request to boot %s (%s)", mach.MAC, mach.Arch))
-
-			s.logger.Info(fmt.Sprintf("Offering to boot %s", pkt.HardwareAddr))
-			if fwtype == FirmwarePixiecoreIpxe {
-				//s.machineEvent(pkt.HardwareAddr, machineStateProxyDHCPIpxe, "Offering to boot iPXE")
-				s.logger.Info(fmt.Sprintf("Offering to boot iPXE %s", pkt.HardwareAddr))
-			} else {
-				//s.machineEvent(pkt.HardwareAddr, machineStateProxyDHCP, "Offering to boot")
-				s.logger.Info(fmt.Sprintf("Offering to boot %s", pkt.HardwareAddr))
-			}
-
-			// Machine should be booted.
-			serverIP, err := interfaceIP(intf)
-			if err != nil {
-				s.logger.Info(fmt.Sprintf("Want to boot %s on %s, but couldn't get a source address: %s", pkt.HardwareAddr, intf.Name, err))
-				continue
-			}
-
-			resp, err := s.offerDHCP(pkt, mach, serverIP, fwtype)
-			if err != nil {
-				s.logger.Info(fmt.Sprintf("Failed to construct ProxyDHCP offer for %s: %s", pkt.HardwareAddr, err))
-				continue
-			}
-
-			if err = conn.SendDHCP(resp, intf); err != nil {
-				s.logger.Info(fmt.Sprintf("Failed to send ProxyDHCP offer for %s: %s", pkt.HardwareAddr, err))
-				continue
-			}
-		}
-	}()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (s *Server) isBootDHCP(pkt *dhcp4.Packet) error {
-	if pkt.Type != dhcp4.MsgDiscover {
-		return fmt.Errorf("packet is %s, not %s", pkt.Type, dhcp4.MsgDiscover)
-	}
-
-	if pkt.Options[93] == nil {
-		return errors.New("not a PXE boot request (missing option 93)")
-	}
-
-	return nil
-}
 
 // Architecture types that Pixiecore knows how to boot.
 //
@@ -141,6 +51,128 @@ const (
 	ArchX64
 )
 
+type Server struct {
+	logger log.Logger
+	// Ipxe lists the supported bootable Firmwares, and their
+	// associated ipxe binary.
+	Ipxe     map[Firmware][]byte
+	HTTPPort string
+}
+
+func Serve(ctx context.Context, logger log.Logger, listenAddr string, bootfile func(arch, userClass, hardwareID string) string, bootserver func() string) error {
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("exiting proxyDHCP")
+			return nil
+		default:
+
+			/*
+				s := &UDPServer{
+					listenAddress: listenAddr,
+					handlePacket: func(conn *net.UDPConn, raddr *net.UDPAddr, braddr *net.UDPAddr, rawIncomingUDPPacket []byte) (int, error) {
+						return handleProxyDHCPPacket(conn, raddr, braddr, rawIncomingUDPPacket)
+					},
+				}
+				//s := servers.NewProxyDHCPServer(listenAddr, "", "", eventsHandler, false)
+				err := s.ListenAndServe(ctx)
+				return err
+			*/
+			s := &Server{logger: logger, HTTPPort: "8080"}
+			newDHCP, err := dhcp4.NewConn(listenAddr)
+			if err != nil {
+				return err
+			}
+			defer newDHCP.Close()
+			err = s.serveProxyDHCP(ctx, newDHCP, bootfile, bootserver)
+			return err
+
+		}
+	}
+}
+
+func (s *Server) serveProxyDHCP(ctx context.Context, conn *dhcp4.Conn, bootfile func(arch, userClass, hardwareID string) string, bootserver func() string) error {
+	go func() {
+		for {
+			pkt, intf, err := conn.RecvDHCP()
+			if err != nil {
+				//s.logger.Info(fmt.Sprintf("Receiving DHCP packet: %s", err))
+				continue
+				//return fmt.Errorf("Receiving DHCP packet: %s", err)
+			}
+			if intf == nil {
+				continue
+				//return fmt.Errorf("Received DHCP packet with no interface information (this is a violation of dhcp4.Conn's contract, please file a bug)")
+			}
+
+			go func() {
+				if err = s.isBootDHCP(pkt); err != nil {
+					s.logger.Info(fmt.Sprintf("Ignoring packet from %s: %s", pkt.HardwareAddr, err))
+					return
+				}
+				mach, fwtype, err := s.validateDHCP(pkt)
+				if err != nil {
+					s.logger.Info(fmt.Sprintf("Unusable packet from %s: %s", pkt.HardwareAddr, err))
+					return
+				}
+
+				s.logger.Info(fmt.Sprintf("Got valid request to boot %s (%s)", mach.MAC, mach.Arch))
+				/*
+					if fwtype == FirmwarePixiecoreIpxe {
+						//s.machineEvent(pkt.HardwareAddr, machineStateProxyDHCPIpxe, "Offering to boot iPXE")
+						s.logger.Info(fmt.Sprintf("Offering to boot iPXE %s", pkt.HardwareAddr))
+					} else {
+						//s.machineEvent(pkt.HardwareAddr, machineStateProxyDHCP, "Offering to boot")
+						s.logger.Info(fmt.Sprintf("Offering to boot %s", pkt.HardwareAddr))
+					}
+				*/
+
+				// Machine should be booted.
+				serverIP, err := interfaceIP(intf)
+				if err != nil {
+					s.logger.Info(fmt.Sprintf("Want to boot %s on %s, but couldn't get a source address: %s", pkt.HardwareAddr, intf.Name, err))
+					return
+				}
+
+				resp, err := s.offerDHCP(pkt, mach, serverIP, fwtype)
+				if err != nil {
+					s.logger.Info(fmt.Sprintf("Failed to construct ProxyDHCP offer for %s: %s", pkt.HardwareAddr, err))
+					return
+				}
+				userClass, _ := pkt.Options.String(77)
+				resp.BootFilename = bootfile(mach.Arch.String(), userClass, mach.MAC.String())
+				if fwtype == FirmwareX86Ipxe && !strings.HasPrefix(resp.BootFilename, "http") {
+					resp.BootFilename = fmt.Sprintf("tftp://%s/%s", bootserver(), bootfile(mach.Arch.String(), userClass, mach.MAC.String()))
+				}
+				if !strings.HasPrefix(resp.BootFilename, "http") {
+					resp.BootServerName = bootserver()
+				}
+				resp.BootServerName = bootserver()
+
+				if err = conn.SendDHCP(resp, intf); err != nil {
+					s.logger.Info(fmt.Sprintf("Failed to send ProxyDHCP offer for %s: %s", pkt.HardwareAddr, err))
+					return
+				}
+			}()
+		}
+	}()
+
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (s *Server) isBootDHCP(pkt *dhcp4.Packet) error {
+	if pkt.Type != dhcp4.MsgDiscover {
+		return fmt.Errorf("packet is %s, not %s", pkt.Type, dhcp4.MsgDiscover)
+	}
+
+	if pkt.Options[93] == nil {
+		return errors.New("not a PXE boot request (missing option 93)")
+	}
+
+	return nil
+}
+
 func (a Architecture) String() string {
 	switch a {
 	case ArchIA32:
@@ -150,15 +182,6 @@ func (a Architecture) String() string {
 	default:
 		return "Unknown architecture"
 	}
-}
-
-// Architecture describes a kind of CPU architecture.
-type Architecture int
-
-// A Machine describes a machine that is attempting to boot.
-type Machine struct {
-	MAC  net.HardwareAddr
-	Arch Architecture
 }
 
 func (s *Server) validateDHCP(pkt *dhcp4.Packet) (mach Machine, fwtype Firmware, err error) {
@@ -228,6 +251,29 @@ func (s *Server) validateDHCP(pkt *dhcp4.Packet) (mach Machine, fwtype Firmware,
 	return mach, fwtype, nil
 }
 
+func (s *Server) offerPXE(pkt *dhcp4.Packet, serverIP net.IP, fwtype Firmware) (resp *dhcp4.Packet, err error) {
+	resp = &dhcp4.Packet{
+		//Type:           dhcp4.MsgAck,
+		Type:           dhcp4.MsgOffer,
+		TransactionID:  pkt.TransactionID,
+		HardwareAddr:   pkt.HardwareAddr,
+		ClientAddr:     pkt.ClientAddr,
+		RelayAddr:      pkt.RelayAddr,
+		ServerAddr:     serverIP,
+		BootServerName: serverIP.String(),
+		BootFilename:   fmt.Sprintf("%s/%d", pkt.HardwareAddr, fwtype),
+		Options: dhcp4.Options{
+			dhcp4.OptServerIdentifier: serverIP,
+			dhcp4.OptVendorIdentifier: []byte("PXEClient"),
+		},
+	}
+	if pkt.Options[97] != nil {
+		resp.Options[97] = pkt.Options[97]
+	}
+
+	return resp, nil
+}
+
 func (s *Server) offerDHCP(pkt *dhcp4.Packet, mach Machine, serverIP net.IP, fwtype Firmware) (*dhcp4.Packet, error) {
 	resp := &dhcp4.Packet{
 		Type:          dhcp4.MsgOffer,
@@ -245,7 +291,6 @@ func (s *Server) offerDHCP(pkt *dhcp4.Packet, mach Machine, serverIP net.IP, fwt
 	if pkt.Options[97] != nil {
 		resp.Options[97] = pkt.Options[97]
 	}
-
 	switch fwtype {
 	case FirmwareX86PC:
 		// This is completely standard PXE: we tell the PXE client to
@@ -266,6 +311,7 @@ func (s *Server) offerDHCP(pkt *dhcp4.Packet, mach Machine, serverIP net.IP, fwt
 
 	case FirmwareX86Ipxe:
 		// Almost standard PXE, but the boot filename needs to be a URL.
+
 		pxe := dhcp4.Options{
 			// PXE Boot Server Discovery Control - bypass, just boot from filename.
 			6: []byte{8},
@@ -307,8 +353,7 @@ func (s *Server) offerDHCP(pkt *dhcp4.Packet, mach Machine, serverIP net.IP, fwt
 	default:
 		return nil, fmt.Errorf("unknown firmware type %d", fwtype)
 	}
-	resp.BootFilename = "netboot.xyz.kpxe"
-	resp.BootServerName = "192.168.1.34"
+
 	return resp, nil
 }
 

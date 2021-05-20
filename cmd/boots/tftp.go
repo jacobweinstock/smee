@@ -1,12 +1,12 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net"
 	"os"
 	"path"
 
-	"github.com/avast/retry-go"
 	"github.com/packethost/pkg/log"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -16,15 +16,19 @@ import (
 )
 
 // ServeTFTP is a useless comment
-func ServeTFTP(tftpAddr string) {
-	err := retry.Do(
-		func() error {
-			return errors.Wrap(tftp.ListenAndServe(tftpAddr, tftpHandler{}), "serving tftp")
-		},
-	)
-	if err != nil {
-		mainlog.Fatal(errors.Wrap(err, "retry tftp serve"))
+func ServeTFTP(ctx context.Context, tftpAddr string) error {
+	err := make(chan error, 1)
+	go func() {
+		err <- errors.Wrap(tftp.ListenAndServe(tftpAddr, tftpHandler{}), "serving tftp")
+	}()
+	var finalErr error
+	select {
+	case <-ctx.Done():
+		finalErr = ctx.Err()
+	case e := <-err:
+		finalErr = e
 	}
+	return finalErr
 }
 
 type tftpHandler struct {
