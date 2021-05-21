@@ -58,22 +58,8 @@ func main() {
 	)
 	ff.Parse(fs, os.Args[1:], ff.WithEnvVarPrefix("BOOTS"))
 
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	defer func() {
-		signal.Stop(signals)
-		cancel()
-	}()
-
-	go func() {
-		select {
-		case <-signals:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
+	ctx, done := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
+	defer done()
 
 	l, err := log.Init("github.com/tinkerbell/boots")
 	if err != nil {

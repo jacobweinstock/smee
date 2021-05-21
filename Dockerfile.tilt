@@ -1,4 +1,4 @@
-FROM golang:alpine as builder
+FROM golang:1.16.4-alpine as builder
 
 WORKDIR /code
 COPY go.mod go.sum /code/
@@ -8,10 +8,6 @@ COPY . /code
 RUN CGO_ENABLED=0 go build -trimpath -ldflags '-s -w -extldflags "-static"' -o boots ./cmd/boots/
 
 
-FROM alpine
-WORKDIR /
-#USER boots
-
-#COPY scripts/etc-passwd /etc/passwd
+FROM scratch
 COPY --from=builder /code/boots /boots
 ENTRYPOINT ["/boots"]
