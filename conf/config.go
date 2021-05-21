@@ -21,7 +21,6 @@ var (
 	HTTPBind   = env.Get("HTTP_BIND", PublicIPv4.String()+":80")
 	TFTPBind   = env.Get("TFTP_BIND", PublicIPv4.String()+":69")
 	BOOTPBind  = env.Get("BOOTP_BIND", PublicIPv4.String()+":67")
-	ProxyDHCP  = env.Get("BOOTS_PROXYDHCP_ADDR", PublicIPv4.String()+":9008")
 
 	// Default to Google Public DNS
 	DHCPLeaseTime = env.Duration("DHCP_LEASE_TIME", (2 * 24 * time.Hour))

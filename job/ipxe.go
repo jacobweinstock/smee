@@ -53,7 +53,6 @@ func (j Job) serveBootScript(w http.ResponseWriter, req *http.Request, name stri
 	}
 
 	s := ipxe.NewScript()
-	s.Set("user-class", "tinkerbell")
 	s.Set("iface", j.InterfaceName(0)).Or("shell")
 	s.Set("tinkerbell", "http://"+conf.PublicFQDN)
 	s.Set("syslog_host", conf.PublicSyslogFQDN)

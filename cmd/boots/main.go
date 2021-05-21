@@ -52,7 +52,7 @@ func main() {
 		dhcpAddr      = fs.String("dhcp-addr", conf.BOOTPBind, "IP and port to listen on for DHCP.")
 		httpAddr      = fs.String("http-addr", conf.HTTPBind, "IP and port to listen on for HTTP.")
 		tftpAddr      = fs.String("tftp-addr", conf.TFTPBind, "IP and port to listen on for TFTP.")
-		proxyDHCPAddr = fs.String("proxyDHCP-addr", conf.ProxyDHCP, "IP and port to listen on for proxyDHCP requests.")
+		proxyDHCPAddr = fs.String("proxyDHCP-addr", "0.0.0.0:67", "IP and port to listen on for proxyDHCP requests.")
 		proxyDHCP     = fs.Bool("proxyDHCP", false, "Enables proxyDHCP only")
 		publicFDQN    = fs.String("public-fqdn", "boots", "public FQDN of boots.")
 	)
