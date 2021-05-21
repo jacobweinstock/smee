@@ -1,0 +1,105 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: boots
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: boots
+  name: boots
+spec:
+  selector:
+    matchLabels:
+      app: boots
+  template:
+    metadata:
+      labels:
+        app: boots
+    spec:
+      hostAliases:
+      - ip: "192.168.2.225"
+        hostnames:
+        - "tinkerbell.tinkerbell"
+      containers:
+      - name: boots
+        image: quay.io/tinkerbell/boots:v0.1.0
+        args: ["-http-addr", "0.0.0.0:80", "-tftp-addr", "0.0.0.0:69", "-proxyDHCP-addr", "0.0.0.0:67", "-proxyDHCP"]
+        ports:
+        - containerPort: 67
+          name: proxydhcp
+          protocol: UDP
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        - containerPort: 69
+          name: tftp
+          protocol: UDP
+        env:
+        - name: MIRROR_HOST
+          value: "192.168.2.225:9090"
+        - name: PUBLIC_FQDN
+          value: "boots.weinstocklabs.com"
+        - name: BOOTS_PUBLIC_FQDN
+          value: "192.168.2.50"
+        - name: DOCKER_REGISTRY
+          value: "docker.io"
+        - name: REGISTRY_USERNAME
+          value: "none"
+        - name: REGISTRY_PASSWORD
+          value: "none"
+        - name: TINKERBELL_GRPC_AUTHORITY
+          value: "tinkerbell.tinkerbell:42113"
+        - name: TINKERBELL_CERT_URL
+          value: "http://tinkerbell.tinkerbell:42114/cert"
+        - name: DATA_MODEL_VERSION
+          value: "1"
+        - name: FACILITY_CODE
+          value: "onprem"
+        - name: API_AUTH_TOKEN
+          value: "empty"
+        - name: API_CONSUMER_TOKEN
+          value: "empty"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: boots-deployment-udp
+  namespace: boots
+  annotations:
+    metallb.universe.tf/allow-shared-ip: boots
+spec:
+  ports:
+  - name: tftp
+    port: 69
+    protocol: UDP
+    targetPort: 69
+  - name: proxydhcp
+    port: 67
+    protocol: UDP
+    targetPort: 67
+  selector:
+    app: boots
+  sessionAffinity: None
+  externalTrafficPolicy: Local
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: boots-deployment-tcp
+  namespace: boots
+  annotations:
+    metallb.universe.tf/allow-shared-ip: boots
+spec:
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: boots
+  sessionAffinity: None
+  externalTrafficPolicy: Local
+  type: LoadBalancer

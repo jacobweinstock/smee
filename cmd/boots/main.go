@@ -54,8 +54,9 @@ func main() {
 		tftpAddr      = fs.String("tftp-addr", conf.TFTPBind, "IP and port to listen on for TFTP.")
 		proxyDHCPAddr = fs.String("proxyDHCP-addr", conf.ProxyDHCP, "IP and port to listen on for proxyDHCP requests.")
 		proxyDHCP     = fs.Bool("proxyDHCP", false, "Enables proxyDHCP only")
+		publicFDQN    = fs.String("public-fqdn", "boots", "public FQDN of boots.")
 	)
-	ff.Parse(fs, os.Args[1:])
+	ff.Parse(fs, os.Args[1:], ff.WithEnvVarPrefix("BOOTS"))
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
@@ -123,7 +124,7 @@ func main() {
 	g, ctx := errgroup.WithContext(ctx)
 	if *proxyDHCP {
 		mainlog.With("address", *proxyDHCPAddr).Info("serving proxyDHCP")
-		g.Go(func() error { return runProxyDHCP(ctx, mainlog, *proxyDHCPAddr, *tftpAddr, *httpAddr) })
+		g.Go(func() error { return runProxyDHCP(ctx, mainlog, *proxyDHCPAddr, *tftpAddr, *httpAddr, *publicFDQN) })
 	} else {
 		job.SetProvisionerEngineName(provisionerEngineName)
 		mainlog.With("address", dhcpAddr).Info("serving dhcp")
@@ -136,7 +137,7 @@ func main() {
 
 	err = g.Wait()
 	if errors.Is(err, context.Canceled) {
-		mainlog.Error(err, "signal caught")
+		mainlog.Info("signal caught")
 	} else if err != nil {
 		mainlog.Error(err, "services failed")
 	}
@@ -145,14 +146,14 @@ func main() {
 
 // runProxyDHCP is a place holder for proxyDHCP being a proper subcommand
 // its goal is to serves proxyDHCP requests
-func runProxyDHCP(ctx context.Context, logger log.Logger, listenAddr, tftpAddr, httpAddr string) error {
-	bootfile := func(arch, userClass, hardwareID string) string {
+func runProxyDHCP(ctx context.Context, logger log.Logger, proxyAddr, tftpAddr, httpAddr, publicFDQN string) error {
+	bootfile := func(arch, uClass, hwID string) string {
 		// business logic of what to give a pxe client
 		// lookup hardware id in tink for
 		filename := "/nonexistent"
-		switch strings.ToLower(userClass) {
+		switch strings.ToLower(uClass) {
 		case "ipxe", "tinkerbell":
-			filename = fmt.Sprintf("http://%v/auto.ipxe", httpAddr)
+			filename = fmt.Sprintf("http://%v/auto.ipxe", publicFDQN)
 		default:
 			switch strings.ToLower(arch) {
 			case "hua", "2a2":
@@ -168,7 +169,7 @@ func runProxyDHCP(ctx context.Context, logger log.Logger, listenAddr, tftpAddr, 
 		return filename
 	}
 	bootserver := func() string {
-		return tftpAddr
+		return publicFDQN
 	}
-	return proxy.Serve(ctx, mainlog, listenAddr, bootfile, bootserver)
+	return proxy.Serve(ctx, mainlog, proxyAddr, bootfile, bootserver)
 }

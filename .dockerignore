@@ -1,2 +1,4 @@
-*
-!cmd/boots/boots-*-*
+
+
+Dockerfile.tilt
+deployments/
