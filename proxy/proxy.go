@@ -52,22 +52,13 @@ type Machine struct {
 	Firm Firmware
 }
 
-// filename returns the Bootfile-Name that will be used for PXE boot responses [option 67]
-// normally based on the arch (based off option 93), user-class (option 77) and hardware ID (mac) of a booting machine
-type filename func(arch, uClass, hwID string) string
-
-// server is the Server-Name that will be used for PXE boot responses [option 66]
-type server func() string
-
 // Serve proxyDHCP on network provided by the lAddr,
-// f and s are customizable
-func Serve(ctx context.Context, l log.Logger, lAddr string, f filename, s server) error {
-	newDHCP, err := dhcp4.NewConn(lAddr)
-	if err != nil {
-		return err
-	}
-	defer newDHCP.Close()
-	go serveProxyDHCP(ctx, l, newDHCP, f, s)
+// f is the Bootfile-Name that will be used for PXE boot responses [option 67]
+// normally based on the arch (based off option 93), user-class (option 77) and hardware ID (mac) of a booting machine
+//
+// s is the Server-Name option that will be used for PXE boot responses [option 66]
+func Serve(ctx context.Context, l log.Logger, conn *dhcp4.Conn, bootfile func(arch, uClass string) string, bootserver func() string) error {
+	go serveProxyDHCP(ctx, l, conn, bootfile, bootserver)
 	<-ctx.Done()
 	return ctx.Err()
 }
@@ -76,7 +67,7 @@ func Serve(ctx context.Context, l log.Logger, lAddr string, f filename, s server
 // 1. listen for generic DHCP packets [conn.RecvDHCP()]
 // 2. check if the DHCP packet is requesting PXE boot [isBootDHCP(pkt)]
 // 3.
-func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f filename, s server) {
+func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(arch, uClass string) string, s func() string) error {
 	for {
 		// RecvDHCP is a blocking call
 		pkt, intf, err := conn.RecvDHCP()
@@ -109,9 +100,9 @@ func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f filen
 				return
 			}
 			userClass, _ := pkt.Options.String(77)
-			resp.BootFilename = f(mach.Arch.String(), userClass, mach.MAC.String())
+			resp.BootFilename = f(mach.Arch.String(), userClass)
 			if mach.Firm == FirmwareX86Ipxe && !strings.HasPrefix(resp.BootFilename, "http") {
-				resp.BootFilename = fmt.Sprintf("tftp://%s/%s", s(), f(mach.Arch.String(), userClass, mach.MAC.String()))
+				resp.BootFilename = fmt.Sprintf("tftp://%s/%s", s(), f(mach.Arch.String(), userClass))
 			}
 			resp.BootServerName = s()
 

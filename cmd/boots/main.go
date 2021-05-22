@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -22,7 +20,6 @@ import (
 	"github.com/tinkerbell/boots/job"
 	"github.com/tinkerbell/boots/metrics"
 	"github.com/tinkerbell/boots/packet"
-	"github.com/tinkerbell/boots/proxy"
 	"github.com/tinkerbell/boots/syslog"
 	"github.com/tinkerbell/boots/tftp"
 	"golang.org/x/sync/errgroup"
@@ -53,8 +50,8 @@ func main() {
 		httpAddr      = fs.String("http-addr", conf.HTTPBind, "IP and port to listen on for HTTP.")
 		tftpAddr      = fs.String("tftp-addr", conf.TFTPBind, "IP and port to listen on for TFTP.")
 		proxyDHCPAddr = fs.String("proxyDHCP-addr", "0.0.0.0:67", "IP and port to listen on for proxyDHCP requests.")
-		proxyDHCP     = fs.Bool("proxyDHCP", false, "Enables proxyDHCP only")
 		publicFDQN    = fs.String("public-fqdn", "boots", "public FQDN of boots.")
+		proxyDHCP     = fs.Bool("proxyDHCP", false, "Enables proxyDHCP only")
 	)
 	ff.Parse(fs, os.Args[1:], ff.WithEnvVarPrefix("BOOTS"))
 
@@ -110,7 +107,9 @@ func main() {
 	g, ctx := errgroup.WithContext(ctx)
 	if *proxyDHCP {
 		mainlog.With("address", *proxyDHCPAddr).Info("serving proxyDHCP")
-		g.Go(func() error { return runProxyDHCP(ctx, mainlog, *proxyDHCPAddr, *tftpAddr, *httpAddr, *publicFDQN) })
+		g.Go(func() error {
+			return runProxyDHCP(ctx, mainlog, *proxyDHCPAddr, customBootfile(*publicFDQN), customBootserver(*publicFDQN))
+		})
 	} else {
 		job.SetProvisionerEngineName(provisionerEngineName)
 		mainlog.With("address", dhcpAddr).Info("serving dhcp")
@@ -125,37 +124,7 @@ func main() {
 	if errors.Is(err, context.Canceled) {
 		mainlog.Info("signal caught")
 	} else if err != nil {
-		mainlog.Error(err, "services failed")
+		mainlog.Fatal(err, "services failed")
 	}
 	mainlog.Info("boots shutdown")
-}
-
-// runProxyDHCP is a place holder for proxyDHCP being a proper subcommand
-// its goal is to serves proxyDHCP requests
-func runProxyDHCP(ctx context.Context, logger log.Logger, proxyAddr, tftpAddr, httpAddr, publicFDQN string) error {
-	bootfile := func(arch, uClass, hwID string) string {
-		// business logic of what to give a pxe client
-		// lookup hardware id in tink for
-		filename := "/nonexistent"
-		switch strings.ToLower(uClass) {
-		case "ipxe", "tinkerbell":
-			filename = fmt.Sprintf("http://%v/auto.ipxe", publicFDQN)
-		default:
-			switch strings.ToLower(arch) {
-			case "hua", "2a2":
-				filename = "snp-hua.efi"
-			case "aarch64":
-				filename = "snp-nolacp.efi"
-			case "uefi":
-				filename = "ipxe.efi"
-			default:
-				filename = "undionly.kpxe"
-			}
-		}
-		return filename
-	}
-	bootserver := func() string {
-		return publicFDQN
-	}
-	return proxy.Serve(ctx, mainlog, proxyAddr, bootfile, bootserver)
 }

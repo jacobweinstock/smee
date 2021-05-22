@@ -25,7 +25,7 @@ spec:
       containers:
       - name: boots
         image: quay.io/tinkerbell/boots:v0.1.0
-        args: ["-http-addr", "0.0.0.0:80", "-tftp-addr", "0.0.0.0:69", "-proxyDHCP-addr", "0.0.0.0:67", "-proxyDHCP"]
+        args: ["-http-addr", ":80", "-tftp-addr", ":69", "-proxyDHCP-addr", ":67", "-proxyDHCP"]
         ports:
         - containerPort: 67
           name: proxydhcp
@@ -40,15 +40,9 @@ spec:
         - name: MIRROR_HOST
           value: "192.168.2.225:9090"
         - name: PUBLIC_FQDN
-          value: "boots.weinstocklabs.com"
+          value: "192.168.2.50"
         - name: BOOTS_PUBLIC_FQDN
           value: "192.168.2.50"
-        - name: DOCKER_REGISTRY
-          value: "docker.io"
-        - name: REGISTRY_USERNAME
-          value: "none"
-        - name: REGISTRY_PASSWORD
-          value: "none"
         - name: TINKERBELL_GRPC_AUTHORITY
           value: "tinkerbell.tinkerbell:42113"
         - name: TINKERBELL_CERT_URL
@@ -61,6 +55,12 @@ spec:
           value: "empty"
         - name: API_CONSUMER_TOKEN
           value: "empty"
+        - name: DOCKER_REGISTRY
+          value: "docker.io"
+        - name: REGISTRY_USERNAME
+          value: "none"
+        - name: REGISTRY_PASSWORD
+          value: "none"
 ---
 apiVersion: v1
 kind: Service
