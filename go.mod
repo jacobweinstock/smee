@@ -14,6 +14,7 @@ require (
 	github.com/google/go-cmp v0.5.5
 	github.com/google/uuid v1.2.0
 	github.com/kevinburke/go-bindata v3.22.0+incompatible
+	github.com/libp2p/go-reuseport v0.0.2
 	github.com/packethost/cacher v0.0.0-20200825140532-0b62e6726807
 	github.com/packethost/dhcp4-go v0.0.0-20190402165401-39c137f31ad3
 	github.com/packethost/pkg v0.0.0-20210325161133-868299771ae0
@@ -28,7 +29,7 @@ require (
 	go.universe.tf/netboot v0.0.0-20201124111825-bdaec9d82638
 	golang.org/x/crypto v0.0.0-20200820211705-5c72a883971a
 	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
-	golang.org/x/net v0.0.0-20210420210106-798c2154c571 // indirect
+	golang.org/x/net v0.0.0-20210420210106-798c2154c571
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/tools v0.1.0
 	google.golang.org/genproto v0.0.0-20200921165018-b9da36f5f452 // indirect

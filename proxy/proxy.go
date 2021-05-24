@@ -13,15 +13,15 @@ import (
 
 // The bootloaders that Boots knows how to handle.
 const (
-	FirmwareX86PC         Firmware = iota // "Classic" x86 BIOS with PXE/UNDI support
-	FirmwareEFI32                         // 32-bit x86 processor running EFI
-	FirmwareEFI64                         // 64-bit x86 processor running EFI
-	FirmwareEFIBC                         // 64-bit x86 processor running EFI
-	FirmwareX86Ipxe                       // "Classic" x86 BIOS running iPXE (no UNDI support)
-	FirmwarePixiecoreIpxe                 // Pixiecore's iPXE, which has replaced the underlying firmware
+	FirmwareX86PC          Firmware = iota // "Classic" x86 BIOS with PXE/UNDI support
+	FirmwareEFI32                          // 32-bit x86 processor running EFI
+	FirmwareEFI64                          // 64-bit x86 processor running EFI
+	FirmwareEFIBC                          // 64-bit x86 processor running EFI
+	FirmwareX86Ipxe                        // "Classic" x86 BIOS running iPXE (no UNDI support)
+	FirmwareTinkerbellIpxe                 // Tinkerbell's iPXE, which has replaced the underlying firmware
 )
 
-// Architecture types that Pixiecore knows how to boot.
+// Architecture types that Tinkerbell knows how to boot.
 //
 // These architectures are self-reported by the booting machine. The
 // machine may support additional execution modes. For example, legacy
@@ -29,7 +29,7 @@ const (
 // execution.
 const (
 	// ArchIA32 is a 32-bit x86 machine. It _may_ also support X64
-	// execution, but Pixiecore has no way of knowing.
+	// execution, but Tinkerbell has no way of knowing.
 	ArchIA32 Architecture = iota
 	// ArchX64 is a 64-bit x86 machine (aka amd64 aka X64).
 	ArchX64
@@ -38,7 +38,7 @@ const (
 // Firmware describes a kind of firmware attempting to boot.
 //
 // This should only be used for selecting the right bootloader within
-// Pixiecore, kernel selection should key off the more generic
+// Tinkerbell, kernel selection should key off the more generic
 // Architecture.
 type Firmware int
 
@@ -94,7 +94,7 @@ func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(
 
 			l.Info(fmt.Sprintf("Got valid request to boot %s (%s)", mach.MAC, mach.Arch))
 
-			resp, err := offerDHCP(pkt, mach, net.ParseIP(s()))
+			resp, err := dhcpOffer(pkt, mach, net.ParseIP(s()))
 			if err != nil {
 				l.Info(fmt.Sprintf("Failed to construct ProxyDHCP offer for %s: %s", pkt.HardwareAddr, err))
 				return
@@ -115,6 +115,9 @@ func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(
 }
 
 // isPXEPacket determines if the packet meets qualifications of a PXE request
+// 1. is a DHCP discovery packet
+// 2. option 93 is set
+// 3. option 97 is correct length
 func isPXEPacket(pkt *dhcp4.Packet) error {
 	// should be a dhcp discover packet
 	if pkt.Type != dhcp4.MsgDiscover {
@@ -192,20 +195,20 @@ func machineDetails(pkt *dhcp4.Packet) (mach Machine, err error) {
 		if userClass == "iPXE" && mach.Firm == FirmwareX86PC {
 			mach.Firm = FirmwareX86Ipxe
 		}
-		// If the client identifies as "pixiecore", we've already
+		// If the client identifies as "tinkerbell", we've already
 		// chainloaded this client to the full-featured copy of iPXE
 		// we supply. We have to distinguish this case so we don't
 		// loop on the chainload step.
-		if userClass == "pixiecore" {
-			mach.Firm = FirmwarePixiecoreIpxe
+		if userClass == "tinkerbell" {
+			mach.Firm = FirmwareTinkerbellIpxe
 		}
 	}
 	mach.MAC = pkt.HardwareAddr
 	return mach, nil
 }
 
-// offerDHCP returns the dhcp packet to offer to the client
-func offerDHCP(pkt *dhcp4.Packet, mach Machine, serverIP net.IP) (*dhcp4.Packet, error) {
+// dhcpOffer returns the dhcp packet to offer to the client
+func dhcpOffer(pkt *dhcp4.Packet, mach Machine, serverIP net.IP) (*dhcp4.Packet, error) {
 	resp := &dhcp4.Packet{
 		Type:          dhcp4.MsgOffer,
 		TransactionID: pkt.TransactionID,

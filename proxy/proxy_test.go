@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/libp2p/go-reuseport"
 	"github.com/packethost/pkg/log"
 	"go.universe.tf/netboot/dhcp4"
 	"golang.org/x/sync/errgroup"
@@ -58,33 +59,32 @@ func TestServe(t *testing.T) {
 		input string
 		want  error
 	}{
-		"context canceled": {input: "127.0.0.1:35689", want: context.Canceled},
-		//"network address error": {input: "127.0.0.1", want: &net.AddrError{}},
+		"context canceled": {input: "192.168.2.225:60656", want: context.Canceled},
 	}
 	fqdn := "127.0.0.1"
 	bfile := customBootfile(fqdn)
 	sfile := customBootserver(fqdn)
 	logger, _ := log.Init("github.com/tinkerbell/boots")
-	conn, err := dhcp4.NewConn("127.0.0.1:35689")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
+
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			conn, err := dhcp4.NewConn(tc.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
 			ctx, cancel := context.WithCancel(context.Background())
 			g, ctx := errgroup.WithContext(ctx)
 			g.Go(func() error {
 				return Serve(ctx, logger, conn, bfile, sfile)
 			})
 			// send DHCP request
-			sendPacket()
-			time.Sleep(3 * time.Second)
+			sendPacket(conn)
 			if errors.Is(tc.want, context.Canceled) {
 				cancel()
 			}
 			got := g.Wait()
-			if reflect.TypeOf(got) != reflect.TypeOf(tc.want) {
+			if !errors.Is(got, tc.want) {
 				cancel()
 				t.Fatalf("expected error of type %T, got: %T", tc.want, got)
 			}
@@ -94,19 +94,23 @@ func TestServe(t *testing.T) {
 	}
 }
 
-func sendPacket() {
-	s, err := net.Dial("udp4", "127.0.0.1:35689")
+func sendPacket(conn *dhcp4.Conn) {
+	con, err := reuseport.Dial("udp4", "192.168.2.225:35689", "192.168.2.225:60656")
 	if err != nil {
+		fmt.Println("1", err)
 		return
 	}
 
 	mac, err := net.ParseMAC("ce:e7:7b:ef:45:f7")
 	if err != nil {
+		fmt.Println("2", err)
 		return
 	}
 	opts := make(dhcp4.Options)
 	var opt93 dhcp4.Option = 93
 	opts[opt93] = []byte{0x0, 0x0}
+	var opt77 dhcp4.Option = 77
+	opts[opt77] = []byte("iPXE")
 	p := &dhcp4.Packet{
 		Type:          dhcp4.MsgDiscover,
 		TransactionID: []byte("1234"),
@@ -114,12 +118,228 @@ func sendPacket() {
 		HardwareAddr:  mac,
 		Options:       opts,
 	}
+
 	bs, err := p.Marshal()
 	if err != nil {
-		//t.Fatalf("marshaling packet: %s", err)
+		fmt.Println("3", err)
 		return
 	}
 
-	s.Write(bs)
+	recPkt := make(chan *dhcp4.Packet)
+	go func() {
 
+		con, err := dhcp4.NewConn("")
+		if err != nil {
+			fmt.Println("err", err)
+			return
+		}
+
+		/*
+			pc, err := reuseport.Dial("udp4", "192.168.2.225:35689", "")
+			if err != nil {
+				fmt.Println("45 err", err)
+				return
+			}
+			defer pc.Close()
+		*/
+		for {
+			//var buf []byte
+			//_, err := pc.Read(buf)
+			pkt, _, err := con.RecvDHCP()
+			if err == nil {
+				//pkt, err := dhcp4.Unmarshal(buf[:])
+				//if err == nil {
+				if pkt.Type == dhcp4.MsgOffer {
+					recPkt <- pkt
+					return
+				}
+				//}
+			} else {
+				fmt.Println("err", err)
+			}
+		}
+	}()
+
+	con.Write(bs)
+	//s.Write(bs)
+	select {
+	case <-time.After(time.Second * 2):
+		close(recPkt)
+		return
+	case pkt := <-recPkt:
+		fmt.Printf("Reply: %+v\n", pkt)
+	}
+
+}
+
+func opts(num int) dhcp4.Options {
+	opts := dhcp4.Options{93: {0x0, 0x0}}
+
+	switch num {
+	case 1:
+	case 2:
+		opts[97] = []byte{0x0, 0x0, 0x2, 0x0, 0x3, 0x0, 0x4, 0x0, 0x5, 0x0, 0x6, 0x0, 0x7, 0x0, 0x8, 0x0, 0x9}
+	case 4:
+		opts[97] = []byte{0x2, 0x0, 0x2, 0x0, 0x3, 0x0, 0x4, 0x0, 0x5, 0x0, 0x6, 0x0, 0x7, 0x0, 0x8, 0x0, 0x9}
+	case 5:
+		opts[97] = []byte{0x2, 0x0, 0x2}
+	default:
+		opts = make(dhcp4.Options)
+	}
+	return opts
+}
+
+func TestIsPXEPacket(t *testing.T) {
+	tests := map[string]struct {
+		input *dhcp4.Packet
+		want  error
+	}{
+		"success, len(opt 97) == 0":             {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opts(1)}, want: nil},
+		"success, len(opt 97) == 17":            {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opts(2)}, want: nil},
+		"fail, missing opt 93":                  {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opts(3)}, want: errors.New("not a PXE boot request (missing option 93)")},
+		"not discovery packet":                  {input: &dhcp4.Packet{Type: dhcp4.MsgAck}, want: fmt.Errorf("packet is %s, not %s", dhcp4.MsgAck, dhcp4.MsgDiscover)},
+		"fail, len(opt 97) == 17, index 0 != 0": {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opts(4)}, want: errors.New("malformed client GUID (option 97), leading byte must be zero")},
+		"fail, opt 97 wrong len":                {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opts(5)}, want: errors.New("malformed client GUID (option 97), wrong size")},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := isPXEPacket(tc.input)
+			if got != nil {
+				if diff := cmp.Diff(got.Error(), tc.want.Error()); diff != "" {
+					t.Fatal(diff)
+				}
+			} else {
+				if diff := cmp.Diff(got, tc.want); diff != "" {
+					t.Fatal(diff)
+				}
+			}
+		})
+	}
+}
+
+func machineType(n int) Machine {
+	var m Machine
+	switch n {
+	case 0:
+		m.Arch = ArchIA32
+		m.Firm = FirmwareX86PC
+	case 6:
+		m.Arch = ArchIA32
+		m.Firm = FirmwareEFI32
+	case 7:
+		m.Arch = ArchX64
+		m.Firm = FirmwareEFI64
+	case 9:
+		m.Arch = ArchX64
+		m.Firm = FirmwareEFIBC
+	}
+	return m
+}
+
+func opt93(n int) dhcp4.Options {
+	opts := make(dhcp4.Options)
+
+	switch n {
+	case 0:
+		var opt93 dhcp4.Option = 93
+		opts[opt93] = []byte{0x0, 0x0}
+	case 6:
+		var opt93 dhcp4.Option = 93
+		opts[opt93] = []byte{0x0, 0x6}
+	case 7:
+		var opt93 dhcp4.Option = 93
+		opts[opt93] = []byte{0x0, 0x7}
+	case 8:
+		var opt93 dhcp4.Option = 93
+		opts[opt93] = []byte{0x0, 0x8}
+	case 9:
+		var opt93 dhcp4.Option = 93
+		opts[opt93] = []byte{0x0, 0x9}
+	}
+	return opts
+}
+
+func TestMachineDetails(t *testing.T) {
+	tests := map[string]struct {
+		input       *dhcp4.Packet
+		wantError   error
+		wantMachine Machine
+	}{
+		"success arch 0":       {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(0)}, wantError: nil, wantMachine: machineType(0)},
+		"success arch 6":       {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(6)}, wantError: nil, wantMachine: machineType(6)},
+		"success arch 7":       {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(7)}, wantError: nil, wantMachine: machineType(7)},
+		"success arch 9":       {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(9)}, wantError: nil, wantMachine: machineType(9)},
+		"fail, unknown arch 8": {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(8)}, wantError: fmt.Errorf("unsupported client firmware type '%d' (please file a bug!)", 8)},
+		"fail, bad opt 93":     {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(4)}, wantError: fmt.Errorf("malformed DHCP option 93 (required for PXE): option not present in Options")},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			m, err := machineDetails(tc.input)
+			if err != nil {
+				if tc.wantError != nil {
+					if diff := cmp.Diff(err.Error(), tc.wantError.Error()); diff != "" {
+						t.Fatal(diff)
+					}
+				} else {
+					t.Fatalf("expected nil error, got: %v", err)
+				}
+
+			} else {
+				if diff := cmp.Diff(m, tc.wantMachine); diff != "" {
+					t.Fatal(diff)
+				}
+			}
+		})
+	}
+}
+
+func TestDhcpOffer(t *testing.T) {
+	tests := map[string]struct {
+		inputPkt  *dhcp4.Packet
+		inputMach Machine
+		wantError error
+		want      *dhcp4.Packet
+	}{
+		"success": {
+			inputPkt: &dhcp4.Packet{
+				Options: dhcp4.Options{
+					97: {0x0, 0x0, 0x2, 0x0, 0x3, 0x0, 0x4, 0x0, 0x5, 0x0, 0x6, 0x0, 0x7, 0x0, 0x8, 0x0, 0x9},
+				},
+			},
+			want: &dhcp4.Packet{
+				Type:       dhcp4.MsgOffer,
+				Broadcast:  true,
+				ServerAddr: net.IP{127, 0, 0, 1},
+				Options: dhcp4.Options{
+					43: {0x06, 0x01, 0x08, 0xff},
+					54: {0x7f, 0x00, 0x00, 0x01},
+					60: {0x50, 0x58, 0x45, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74},
+					97: {0x0, 0x0, 0x2, 0x0, 0x3, 0x0, 0x4, 0x0, 0x5, 0x0, 0x6, 0x0, 0x7, 0x0, 0x8, 0x0, 0x9},
+				},
+			},
+			inputMach: machineType(0),
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			pkt, err := dhcpOffer(tc.inputPkt, tc.inputMach, net.IP{127, 0, 0, 1})
+			if err != nil {
+				if tc.wantError != nil {
+					if diff := cmp.Diff(err.Error(), tc.wantError.Error()); diff != "" {
+						t.Fatal(diff)
+					}
+				} else {
+					t.Fatalf("expected nil error, got: %v", err)
+				}
+
+			} else {
+				if diff := cmp.Diff(pkt, tc.want); diff != "" {
+					t.Fatal(diff)
+				}
+			}
+		})
+	}
 }
