@@ -225,32 +225,20 @@ func dhcpOffer(pkt *dhcp4.Packet, mach Machine, serverIP net.IP) (*dhcp4.Packet,
 	if pkt.Options[97] != nil {
 		resp.Options[97] = pkt.Options[97]
 	}
+	// This is completely standard PXE: we tell the PXE client to
+	// bypass all the boot discovery rubbish that PXE supports,
+	// and just load a file from TFTP.
+	pxe := dhcp4.Options{
+		// PXE Boot Server Discovery Control - bypass, just boot from filename.
+		6: []byte{8},
+	}
+	bs, err := pxe.Marshal()
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize PXE Boot Server Discovery Control: %s", err)
+	}
+	resp.Options[43] = bs
 	switch mach.Firm {
-	case FirmwareX86PC:
-		// This is completely standard PXE: we tell the PXE client to
-		// bypass all the boot discovery rubbish that PXE supports,
-		// and just load a file from TFTP.
-		pxe := dhcp4.Options{
-			// PXE Boot Server Discovery Control - bypass, just boot from filename.
-			6: []byte{8},
-		}
-		bs, err := pxe.Marshal()
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize PXE vendor options: %s", err)
-		}
-		resp.Options[43] = bs
-
-	case FirmwareX86Ipxe:
-		// Almost standard PXE, but the boot filename needs to be a URL.
-		pxe := dhcp4.Options{
-			// PXE Boot Server Discovery Control - bypass, just boot from filename.
-			6: []byte{8},
-		}
-		bs, err := pxe.Marshal()
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize PXE vendor options: %s", err)
-		}
-		resp.Options[43] = bs
+	case FirmwareX86PC, FirmwareEFI32, FirmwareEFI64, FirmwareEFIBC, FirmwareX86Ipxe, FirmwareTinkerbellIpxe:
 	default:
 		return nil, fmt.Errorf("unknown firmware type %d", mach.Firm)
 	}

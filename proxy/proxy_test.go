@@ -233,6 +233,11 @@ func machineType(n int) Machine {
 	case 9:
 		m.Arch = ArchX64
 		m.Firm = FirmwareEFIBC
+	case 10:
+		m.Arch = ArchX64
+		m.Firm = FirmwareTinkerbellIpxe
+	case -1:
+		m.Firm = Firmware(-1)
 	}
 	return m
 }
@@ -242,20 +247,18 @@ func opt93(n int) dhcp4.Options {
 
 	switch n {
 	case 0:
-		var opt93 dhcp4.Option = 93
-		opts[opt93] = []byte{0x0, 0x0}
+		opts[93] = []byte{0x0, 0x0}
 	case 6:
-		var opt93 dhcp4.Option = 93
-		opts[opt93] = []byte{0x0, 0x6}
+		opts[93] = []byte{0x0, 0x6}
 	case 7:
-		var opt93 dhcp4.Option = 93
-		opts[opt93] = []byte{0x0, 0x7}
+		opts[93] = []byte{0x0, 0x7}
 	case 8:
-		var opt93 dhcp4.Option = 93
-		opts[opt93] = []byte{0x0, 0x8}
+		opts[93] = []byte{0x0, 0x8}
 	case 9:
-		var opt93 dhcp4.Option = 93
-		opts[opt93] = []byte{0x0, 0x9}
+		opts[93] = []byte{0x0, 0x9}
+	case 10:
+		opts[93] = []byte{0x0, 0x9}
+		opts[77] = []byte("tinkerbell")
 	}
 	return opts
 }
@@ -266,12 +269,13 @@ func TestMachineDetails(t *testing.T) {
 		wantError   error
 		wantMachine Machine
 	}{
-		"success arch 0":       {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(0)}, wantError: nil, wantMachine: machineType(0)},
-		"success arch 6":       {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(6)}, wantError: nil, wantMachine: machineType(6)},
-		"success arch 7":       {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(7)}, wantError: nil, wantMachine: machineType(7)},
-		"success arch 9":       {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(9)}, wantError: nil, wantMachine: machineType(9)},
-		"fail, unknown arch 8": {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(8)}, wantError: fmt.Errorf("unsupported client firmware type '%d' (please file a bug!)", 8)},
-		"fail, bad opt 93":     {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(4)}, wantError: fmt.Errorf("malformed DHCP option 93 (required for PXE): option not present in Options")},
+		"success arch 0":               {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(0)}, wantError: nil, wantMachine: machineType(0)},
+		"success arch 6":               {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(6)}, wantError: nil, wantMachine: machineType(6)},
+		"success arch 7":               {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(7)}, wantError: nil, wantMachine: machineType(7)},
+		"success arch 9":               {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(9)}, wantError: nil, wantMachine: machineType(9)},
+		"success userClass tinkerbell": {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(10)}, wantError: nil, wantMachine: machineType(10)},
+		"fail, unknown arch 8":         {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(8)}, wantError: fmt.Errorf("unsupported client firmware type '%d' (please file a bug!)", 8)},
+		"fail, bad opt 93":             {input: &dhcp4.Packet{Type: dhcp4.MsgDiscover, Options: opt93(4)}, wantError: fmt.Errorf("malformed DHCP option 93 (required for PXE): option not present in Options")},
 	}
 
 	for name, tc := range tests {
@@ -321,6 +325,15 @@ func TestDhcpOffer(t *testing.T) {
 			},
 			inputMach: machineType(0),
 		},
+		"fail, unknown firmware": {
+			inputPkt: &dhcp4.Packet{
+				Options: dhcp4.Options{
+					97: {0x0, 0x0, 0x2, 0x0, 0x3, 0x0, 0x4, 0x0, 0x5, 0x0, 0x6, 0x0, 0x7, 0x0, 0x8, 0x0, 0x9},
+				},
+			},
+			wantError: fmt.Errorf("unknown firmware type %d", Firmware(-1)),
+			inputMach: machineType(-1),
+		},
 	}
 
 	for name, tc := range tests {
@@ -339,6 +352,26 @@ func TestDhcpOffer(t *testing.T) {
 				if diff := cmp.Diff(pkt, tc.want); diff != "" {
 					t.Fatal(diff)
 				}
+			}
+		})
+	}
+}
+
+func TestArchString(t *testing.T) {
+	tests := map[string]struct {
+		input Architecture
+		want  string
+	}{
+		"ArchIA32": {input: ArchIA32, want: "IA32"},
+		"ArchX64":  {input: ArchX64, want: "X64"},
+		"unknown":  {input: Architecture(6), want: "Unknown architecture"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			arch := tc.input.String()
+			if diff := cmp.Diff(arch, tc.want); diff != "" {
+				t.Fatal(diff)
 			}
 		})
 	}
