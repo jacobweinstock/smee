@@ -59,7 +59,7 @@ func TestServe(t *testing.T) {
 		input string
 		want  error
 	}{
-		"context canceled": {input: "192.168.2.225:60656", want: context.Canceled},
+		"context canceled": {input: "127.0.0.1:60656", want: context.Canceled},
 	}
 	fqdn := "127.0.0.1"
 	bfile := customBootfile(fqdn)
@@ -95,7 +95,7 @@ func TestServe(t *testing.T) {
 }
 
 func sendPacket(conn *dhcp4.Conn) {
-	con, err := reuseport.Dial("udp4", "192.168.2.225:35689", "192.168.2.225:60656")
+	con, err := reuseport.Dial("udp4", "127.0.0.1:35689", "127.0.0.1:60656")
 	if err != nil {
 		fmt.Println("1", err)
 		return
