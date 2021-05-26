@@ -236,6 +236,7 @@ func machineType(n int) Machine {
 	case 10:
 		m.Arch = ArchX64
 		m.Firm = FirmwareTinkerbellIpxe
+		m.UserClass = "tinkerbell"
 	case -1:
 		m.Firm = Firmware(-1)
 	}
@@ -263,7 +264,7 @@ func opt93(n int) dhcp4.Options {
 	return opts
 }
 
-func TestMachineDetails(t *testing.T) {
+func TestProcessMachine(t *testing.T) {
 	tests := map[string]struct {
 		input       *dhcp4.Packet
 		wantError   error
@@ -299,7 +300,7 @@ func TestMachineDetails(t *testing.T) {
 	}
 }
 
-func TestDhcpOffer(t *testing.T) {
+func TestCreateOffer(t *testing.T) {
 	tests := map[string]struct {
 		inputPkt  *dhcp4.Packet
 		inputMach Machine
@@ -326,15 +327,6 @@ func TestDhcpOffer(t *testing.T) {
 				},
 			},
 			inputMach: machineType(0),
-		},
-		"fail, unknown firmware": {
-			inputPkt: &dhcp4.Packet{
-				Options: dhcp4.Options{
-					97: {0x0, 0x0, 0x2, 0x0, 0x3, 0x0, 0x4, 0x0, 0x5, 0x0, 0x6, 0x0, 0x7, 0x0, 0x8, 0x0, 0x9},
-				},
-			},
-			wantError: fmt.Errorf("unknown firmware type %d", Firmware(-1)),
-			inputMach: machineType(-1),
 		},
 	}
 	fqdn := "127.0.0.1"
@@ -366,9 +358,13 @@ func TestArchString(t *testing.T) {
 		input Architecture
 		want  string
 	}{
-		"ArchIA32": {input: ArchIA32, want: "IA32"},
-		"ArchX64":  {input: ArchX64, want: "X64"},
-		"unknown":  {input: Architecture(6), want: "Unknown architecture"},
+		"ArchIA32":    {input: ArchIA32, want: "IA32"},
+		"ArchX64":     {input: ArchX64, want: "X64"},
+		"Arch2a2":     {input: Arch2a2, want: "2a2"},
+		"ArchAarch64": {input: ArchAarch64, want: "aarch64"},
+		"ArchUefi":    {input: ArchUefi, want: "uefi"},
+		"ArchHua":     {input: ArchHua, want: "hua"},
+		"unknown":     {input: Architecture(6), want: "Unknown architecture"},
 	}
 
 	for name, tc := range tests {
