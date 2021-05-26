@@ -34,7 +34,7 @@ func TestFormatHostPort(t *testing.T) {
 	}
 }
 
-func TestCustomBootserver(t *testing.T) {
+func TestWithServer(t *testing.T) {
 	tests := map[string]struct {
 		input string
 		want  string
@@ -53,7 +53,7 @@ func TestCustomBootserver(t *testing.T) {
 	}
 }
 
-func TestCustomBootfile(t *testing.T) {
+func TestWithBootfile(t *testing.T) {
 	tests := map[string]struct {
 		input proxy.Machine
 		want  string
@@ -63,7 +63,7 @@ func TestCustomBootfile(t *testing.T) {
 		"arch: aarch64": {input: proxy.Machine{Arch: proxy.ArchAarch64}, want: "snp-nolacp.efi"},
 		"arch: uefi":    {input: proxy.Machine{Arch: proxy.ArchUefi}, want: "ipxe.efi"},
 		"arch: ia32":    {input: proxy.Machine{Arch: proxy.ArchIA32}, want: "undionly.kpxe"},
-		"arch: iPXE":    {input: proxy.Machine{Arch: proxy.ArchIA32, UserClass: "iPXE"}, want: "http://static/auto.ipxe"},
+		"arch: iPXE":    {input: proxy.Machine{Arch: proxy.ArchIA32, Firm: proxy.FirmwareX86Ipxe}, want: "http://static/auto.ipxe"},
 	}
 
 	for name, tc := range tests {
