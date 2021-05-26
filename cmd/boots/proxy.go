@@ -10,10 +10,10 @@ import (
 	"go.universe.tf/netboot/dhcp4"
 )
 
-// runProxyDHCP is a place holder for proxyDHCP being a proper subcommand
+// serveProxy is a place holder for proxyDHCP being a proper subcommand
 // its goal is to serves proxyDHCP requests
-func runProxyDHCP(ctx context.Context, logger log.Logger, proxyAddr string, b bootfile, s bootserver) error {
-	conn, err := dhcp4.NewConn(formatHostPort(proxyAddr))
+func serveProxy(ctx context.Context, logger log.Logger, proxyAddr string, b getBootfile, s getServer) error {
+	conn, err := dhcp4.NewConn(formatAddr(proxyAddr))
 	if err != nil {
 		return err
 	}
@@ -22,45 +22,50 @@ func runProxyDHCP(ctx context.Context, logger log.Logger, proxyAddr string, b bo
 	return proxy.Serve(ctx, logger, conn, b, s)
 }
 
-// bootfile returns the Bootfile-Name that will be used for PXE boot responses [option 67]
-// normally based on the arch (based off option 93), user-class (option 77) and hardware ID (mac) of a booting machine
-type bootfile func(arch, uClass string) string
+// getBootfile returns the Bootfile-Name that will be used for PXE boot responses [option 67]
+// normally based on the arch (based off option 93),
+// user-class (option 77), and firmware (based off option 93) of a booting machine
+type getBootfile func(mach proxy.Machine) string
 
-// bootserver returns the Server-Name option that will be used for PXE boot responses [option 66]
-type bootserver func() string
+// getServer returns the Server-Name option that will be used for PXE boot responses [option 66]
+type getServer func() string
 
-// customBootfile defines how a Bootfile-Name is determined
-func customBootfile(publicFDQN string) bootfile {
-	return func(arch, uClass string) string {
+// withBootfile defines how a Bootfile-Name is determined
+func withBootfile(addr string) getBootfile {
+	return func(m proxy.Machine) string {
 		var filename string
-		switch strings.ToLower(uClass) {
-		case "ipxe", "tinkerbell":
-			filename = fmt.Sprintf("http://%v/auto.ipxe", publicFDQN)
+		fmt.Printf("machine: %+v\n", m)
+		// based on the machine arch set the filename
+		switch m.Arch {
+		case proxy.ArchHua, proxy.Arch2a2:
+			filename = "snp-hua.efi"
+		case proxy.ArchAarch64:
+			filename = "snp-nolacp.efi"
+		case proxy.ArchUefi:
+			filename = "ipxe.efi"
 		default:
-			switch strings.ToLower(arch) {
-			case "hua", "2a2":
-				filename = "snp-hua.efi"
-			case "aarch64":
-				filename = "snp-nolacp.efi"
-			case "uefi":
-				filename = "ipxe.efi"
-			default:
-				filename = "undionly.kpxe"
-			}
+			filename = "undionly.kpxe"
+		}
+		switch m.Firm {
+		// if we're in iPXE we can use HTTP endpoint
+		case proxy.FirmwareX86Ipxe, proxy.FirmwareTinkerbellIpxe:
+			filename = fmt.Sprintf("http://%v/auto.ipxe", addr)
+		case proxy.FirmwareX86PC, proxy.FirmwareEFI32, proxy.FirmwareEFI64, proxy.FirmwareEFIBC:
+		default:
+			filename = "/nonexistent"
 		}
 		return filename
 	}
 }
 
-func customBootserver(publicFDQN string) bootserver {
+func withServer(addr string) getServer {
 	return func() string {
-		return publicFDQN
+		return addr
 	}
 }
 
-// formatHostPort will add 0.0.0.0 to a host:port combo that is without a host
-// i.e. ":67"
-func formatHostPort(s string) string {
+// formatAddr will add 0.0.0.0 to a host:port combo that is without a host i.e. ":67"
+func formatAddr(s string) string {
 	if strings.HasPrefix(s, ":") {
 		return "0.0.0.0" + s
 	}

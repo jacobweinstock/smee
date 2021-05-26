@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/tinkerbell/boots/proxy"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -25,7 +26,7 @@ func TestFormatHostPort(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := formatHostPort(tc.input)
+			got := formatAddr(tc.input)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Fatalf(diff)
 			}
@@ -43,7 +44,7 @@ func TestCustomBootserver(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			fn := customBootserver(tc.input)
+			fn := withServer(tc.input)
 			got := fn()
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Fatalf(diff)
@@ -53,25 +54,22 @@ func TestCustomBootserver(t *testing.T) {
 }
 
 func TestCustomBootfile(t *testing.T) {
-	type inputs struct {
-		arch, uClass string
-	}
 	tests := map[string]struct {
-		input inputs
+		input proxy.Machine
 		want  string
 	}{
-		"arch: hua":     {input: inputs{arch: "hua"}, want: "snp-hua.efi"},
-		"arch: 2a2":     {input: inputs{arch: "2a2"}, want: "snp-hua.efi"},
-		"arch: aarch64": {input: inputs{arch: "aarch64"}, want: "snp-nolacp.efi"},
-		"arch: uefi":    {input: inputs{arch: "uefi"}, want: "ipxe.efi"},
-		"arch: ia32":    {input: inputs{arch: "IA32"}, want: "undionly.kpxe"},
-		"arch: iPXE":    {input: inputs{arch: "IA32", uClass: "iPXE"}, want: "http://static/auto.ipxe"},
+		"arch: hua":     {input: proxy.Machine{Arch: proxy.ArchHua}, want: "snp-hua.efi"},
+		"arch: 2a2":     {input: proxy.Machine{Arch: proxy.Arch2a2}, want: "snp-hua.efi"},
+		"arch: aarch64": {input: proxy.Machine{Arch: proxy.ArchAarch64}, want: "snp-nolacp.efi"},
+		"arch: uefi":    {input: proxy.Machine{Arch: proxy.ArchUefi}, want: "ipxe.efi"},
+		"arch: ia32":    {input: proxy.Machine{Arch: proxy.ArchIA32}, want: "undionly.kpxe"},
+		"arch: iPXE":    {input: proxy.Machine{Arch: proxy.ArchIA32, UserClass: "iPXE"}, want: "http://static/auto.ipxe"},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			fn := customBootfile("static")
-			got := fn(tc.input.arch, tc.input.uClass)
+			fn := withBootfile("static")
+			got := fn(tc.input)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Fatalf(diff)
 			}
@@ -88,14 +86,14 @@ func TestRunProxyDHCP(t *testing.T) {
 		"network address error": {input: "127.0.0.1", want: &net.AddrError{}},
 	}
 	fqdn := "127.0.0.1"
-	bfile := customBootfile(fqdn)
-	sfile := customBootserver(fqdn)
+	bfile := withBootfile(fqdn)
+	sfile := withServer(fqdn)
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			g, ctx := errgroup.WithContext(ctx)
 			g.Go(func() error {
-				return runProxyDHCP(ctx, mainlog, tc.input, bfile, sfile)
+				return serveProxy(ctx, mainlog, tc.input, bfile, sfile)
 			})
 
 			if errors.Is(tc.want, context.Canceled) {

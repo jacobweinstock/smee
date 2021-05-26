@@ -108,7 +108,7 @@ func main() {
 	if *proxyDHCP {
 		mainlog.With("address", *proxyDHCPAddr).Info("serving proxyDHCP")
 		g.Go(func() error {
-			return runProxyDHCP(ctx, mainlog, *proxyDHCPAddr, customBootfile(*publicFDQN), customBootserver(*publicFDQN))
+			return serveProxy(ctx, mainlog, *proxyDHCPAddr, withBootfile(*publicFDQN), withServer(*publicFDQN))
 		})
 	} else {
 		job.SetProvisionerEngineName(provisionerEngineName)

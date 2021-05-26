@@ -20,20 +20,20 @@ import (
 
 // bootfile returns the Bootfile-Name that will be used for PXE boot responses [option 67]
 // normally based on the arch (based off option 93), user-class (option 77) and hardware ID (mac) of a booting machine
-type bootfile func(arch, uClass string) string
+type bootfile func(mach Machine) string
 
 // bootserver returns the Server-Name option that will be used for PXE boot responses [option 66]
 type bootserver func() string
 
 // customBootfile defines how a Bootfile-Name is determined
 func customBootfile(publicFDQN string) bootfile {
-	return func(arch, uClass string) string {
+	return func(mach Machine) string {
 		var filename string
-		switch strings.ToLower(uClass) {
+		switch strings.ToLower(mach.UserClass) {
 		case "ipxe", "tinkerbell":
 			filename = fmt.Sprintf("http://%v/auto.ipxe", publicFDQN)
 		default:
-			switch strings.ToLower(arch) {
+			switch strings.ToLower(mach.Arch.String()) {
 			case "hua", "2a2":
 				filename = "snp-hua.efi"
 			case "aarch64":
@@ -280,7 +280,7 @@ func TestMachineDetails(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			m, err := machineDetails(tc.input)
+			m, err := processMachine(tc.input)
 			if err != nil {
 				if tc.wantError != nil {
 					if diff := cmp.Diff(err.Error(), tc.wantError.Error()); diff != "" {
@@ -313,9 +313,11 @@ func TestDhcpOffer(t *testing.T) {
 				},
 			},
 			want: &dhcp4.Packet{
-				Type:       dhcp4.MsgOffer,
-				Broadcast:  true,
-				ServerAddr: net.IP{127, 0, 0, 1},
+				Type:           dhcp4.MsgOffer,
+				Broadcast:      true,
+				ServerAddr:     net.IP{127, 0, 0, 1},
+				BootServerName: "127.0.0.1",
+				BootFilename:   "undionly.kpxe",
 				Options: dhcp4.Options{
 					43: {0x06, 0x01, 0x08, 0xff},
 					54: {0x7f, 0x00, 0x00, 0x01},
@@ -335,10 +337,12 @@ func TestDhcpOffer(t *testing.T) {
 			inputMach: machineType(-1),
 		},
 	}
-
+	fqdn := "127.0.0.1"
+	sfile := customBootserver(fqdn)
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			pkt, err := dhcpOffer(tc.inputPkt, tc.inputMach, net.IP{127, 0, 0, 1})
+			bfile := customBootfile(fqdn)
+			pkt, err := createOffer(tc.inputPkt, tc.inputMach, net.IP{127, 0, 0, 1}, bfile, sfile)
 			if err != nil {
 				if tc.wantError != nil {
 					if diff := cmp.Diff(err.Error(), tc.wantError.Error()); diff != "" {

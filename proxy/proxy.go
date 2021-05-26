@@ -1,3 +1,8 @@
+// Package proxy implements proxyDHCP functionality
+//
+// This was taken from https://github.com/danderson/netboot/blob/master/pixiecore/dhcp.go
+// and modified. Contributions to pixiecore would have been preferred but pixiecore
+// has not been maintained for some time now.
 package proxy
 
 import (
@@ -5,34 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 
 	"github.com/packethost/pkg/log"
 	"go.universe.tf/netboot/dhcp4"
-)
-
-// The bootloaders that Boots knows how to handle.
-const (
-	FirmwareX86PC          Firmware = iota // "Classic" x86 BIOS with PXE/UNDI support
-	FirmwareEFI32                          // 32-bit x86 processor running EFI
-	FirmwareEFI64                          // 64-bit x86 processor running EFI
-	FirmwareEFIBC                          // 64-bit x86 processor running EFI
-	FirmwareX86Ipxe                        // "Classic" x86 BIOS running iPXE (no UNDI support)
-	FirmwareTinkerbellIpxe                 // Tinkerbell's iPXE, which has replaced the underlying firmware
-)
-
-// Architecture types that Tinkerbell knows how to boot.
-//
-// These architectures are self-reported by the booting machine. The
-// machine may support additional execution modes. For example, legacy
-// PC BIOS reports itself as an ArchIA32, but may also support ArchX64
-// execution.
-const (
-	// ArchIA32 is a 32-bit x86 machine. It _may_ also support X64
-	// execution, but Tinkerbell has no way of knowing.
-	ArchIA32 Architecture = iota
-	// ArchX64 is a 64-bit x86 machine (aka amd64 aka X64).
-	ArchX64
 )
 
 // Firmware describes a kind of firmware attempting to boot.
@@ -47,17 +27,46 @@ type Architecture int
 
 // A Machine describes a machine that is attempting to boot.
 type Machine struct {
-	MAC  net.HardwareAddr
-	Arch Architecture
-	Firm Firmware
+	MAC       net.HardwareAddr
+	Arch      Architecture
+	Firm      Firmware
+	UserClass string
 }
+
+// The bootloaders that Boots knows how to handle.
+const (
+	FirmwareX86PC          Firmware = iota // "Classic" x86 BIOS with PXE/UNDI support
+	FirmwareEFI32                          // 32-bit x86 processor running EFI
+	FirmwareEFI64                          // 64-bit x86 processor running EFI
+	FirmwareEFIBC                          // 64-bit x86 processor running EFI
+	FirmwareX86Ipxe                        // "Classic" x86 BIOS running iPXE (no UNDI support)
+	FirmwareTinkerbellIpxe                 // Tinkerbell's iPXE, which has replaced the underlying firmware
+)
+
+// Architecture types that Boots knows how to boot.
+//
+// These architectures are self-reported by the booting machine. The
+// machine may support additional execution modes. For example, legacy
+// PC BIOS reports itself as an ArchIA32, but may also support ArchX64
+// execution.
+const (
+	// ArchIA32 is a 32-bit x86 machine. It _may_ also support X64
+	// execution, but Boots has no way of knowing.
+	ArchIA32 Architecture = iota
+	// ArchX64 is a 64-bit x86 machine (aka amd64 aka X64).
+	ArchX64
+	ArchAarch64
+	ArchUefi
+	Arch2a2
+	ArchHua
+)
 
 // Serve proxyDHCP on network provided by the lAddr,
 // f is the Bootfile-Name that will be used for PXE boot responses [option 67]
 // normally based on the arch (based off option 93), user-class (option 77) and hardware ID (mac) of a booting machine
 //
 // s is the Server-Name option that will be used for PXE boot responses [option 66]
-func Serve(ctx context.Context, l log.Logger, conn *dhcp4.Conn, bootfile func(arch, uClass string) string, bootserver func() string) error {
+func Serve(ctx context.Context, l log.Logger, conn *dhcp4.Conn, bootfile func(mach Machine) string, bootserver func() string) error {
 	go serveProxyDHCP(ctx, l, conn, bootfile, bootserver)
 	<-ctx.Done()
 	return ctx.Err()
@@ -67,7 +76,7 @@ func Serve(ctx context.Context, l log.Logger, conn *dhcp4.Conn, bootfile func(ar
 // 1. listen for generic DHCP packets [conn.RecvDHCP()]
 // 2. check if the DHCP packet is requesting PXE boot [isBootDHCP(pkt)]
 // 3.
-func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(arch, uClass string) string, s func() string) error {
+func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(mach Machine) string, s func() string) {
 	for {
 		// RecvDHCP is a blocking call
 		pkt, intf, err := conn.RecvDHCP()
@@ -86,7 +95,7 @@ func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(
 				l.Info(fmt.Sprintf("Ignoring packet from %s: %s", pkt.HardwareAddr, err))
 				return
 			}
-			mach, err := machineDetails(pkt)
+			mach, err := processMachine(pkt)
 			if err != nil {
 				l.Info(fmt.Sprintf("Unusable packet from %s: %s", pkt.HardwareAddr, err))
 				return
@@ -94,17 +103,11 @@ func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(
 
 			l.Info(fmt.Sprintf("Got valid request to boot %s (%s)", mach.MAC, mach.Arch))
 
-			resp, err := dhcpOffer(pkt, mach, net.ParseIP(s()))
+			resp, err := createOffer(pkt, mach, net.ParseIP(s()), f, s)
 			if err != nil {
 				l.Info(fmt.Sprintf("Failed to construct ProxyDHCP offer for %s: %s", pkt.HardwareAddr, err))
 				return
 			}
-			userClass, _ := pkt.Options.String(77)
-			resp.BootFilename = f(mach.Arch.String(), userClass)
-			if mach.Firm == FirmwareX86Ipxe && !strings.HasPrefix(resp.BootFilename, "http") {
-				resp.BootFilename = fmt.Sprintf("tftp://%s/%s", s(), f(mach.Arch.String(), userClass))
-			}
-			resp.BootServerName = s()
 
 			if err = conn.SendDHCP(resp, intf); err != nil {
 				l.Info(fmt.Sprintf("Failed to send ProxyDHCP offer for %s: %s", pkt.HardwareAddr, err))
@@ -153,12 +156,21 @@ func (a Architecture) String() string {
 		return "IA32"
 	case ArchX64:
 		return "X64"
+	case Arch2a2:
+		return "2a2"
+	case ArchAarch64:
+		return "aarch64"
+	case ArchUefi:
+		return "uefi"
+	case ArchHua:
+		return "hua"
 	default:
 		return "Unknown architecture"
 	}
 }
 
-func machineDetails(pkt *dhcp4.Packet) (mach Machine, err error) {
+// processMachine reads a dhcp packet and populates a machine struct
+func processMachine(pkt *dhcp4.Packet) (mach Machine, err error) {
 	fwt, err := pkt.Options.Uint16(93)
 	if err != nil {
 		return mach, fmt.Errorf("malformed DHCP option 93 (required for PXE): %s", err)
@@ -188,6 +200,7 @@ func machineDetails(pkt *dhcp4.Packet) (mach Machine, err error) {
 	// to identify these as part of making the internal chainloading
 	// logic work properly.
 	if userClass, err := pkt.Options.String(77); err == nil {
+		mach.UserClass = userClass
 		// If the client has had iPXE burned into its ROM (or is a VM
 		// that uses iPXE as the PXE "ROM"), special handling is
 		// needed because in this mode the client is using iPXE native
@@ -207,8 +220,8 @@ func machineDetails(pkt *dhcp4.Packet) (mach Machine, err error) {
 	return mach, nil
 }
 
-// dhcpOffer returns the dhcp packet to offer to the client
-func dhcpOffer(pkt *dhcp4.Packet, mach Machine, serverIP net.IP) (*dhcp4.Packet, error) {
+// createOffer returns a dhcp packet to offer to the client
+func createOffer(pkt *dhcp4.Packet, mach Machine, serverIP net.IP, f func(mach Machine) string, s func() string) (*dhcp4.Packet, error) {
 	resp := &dhcp4.Packet{
 		Type:          dhcp4.MsgOffer,
 		TransactionID: pkt.TransactionID,
@@ -225,23 +238,25 @@ func dhcpOffer(pkt *dhcp4.Packet, mach Machine, serverIP net.IP) (*dhcp4.Packet,
 	if pkt.Options[97] != nil {
 		resp.Options[97] = pkt.Options[97]
 	}
-	// This is completely standard PXE: we tell the PXE client to
-	// bypass all the boot discovery rubbish that PXE supports,
-	// and just load a file from TFTP.
-	pxe := dhcp4.Options{
-		// PXE Boot Server Discovery Control - bypass, just boot from filename.
-		6: []byte{8},
-	}
-	bs, err := pxe.Marshal()
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize PXE Boot Server Discovery Control: %s", err)
-	}
-	resp.Options[43] = bs
+
 	switch mach.Firm {
-	case FirmwareX86PC, FirmwareEFI32, FirmwareEFI64, FirmwareEFIBC, FirmwareX86Ipxe, FirmwareTinkerbellIpxe:
+	case FirmwareEFI32, FirmwareEFI64, FirmwareEFIBC, FirmwareTinkerbellIpxe, FirmwareX86Ipxe:
 	default:
-		return nil, fmt.Errorf("unknown firmware type %d", mach.Firm)
+		// This is completely standard PXE: we tell the PXE client to
+		// bypass all the boot discovery rubbish that PXE supports,
+		// and just load a file from TFTP.
+		pxe := dhcp4.Options{
+			// PXE Boot Server Discovery Control - bypass, just boot from filename.
+			6: []byte{8},
+		}
+		bs, err := pxe.Marshal()
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize PXE Boot Server Discovery Control: %s", err)
+		}
+		resp.Options[43] = bs
 	}
 
+	resp.BootFilename = f(mach)
+	resp.BootServerName = s()
 	return resp, nil
 }
