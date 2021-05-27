@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 
 	"github.com/gammazero/workerpool"
@@ -21,9 +22,12 @@ func ServeDHCP(ctx context.Context, listenAddr string) error {
 	defer handler.pool.Stop()
 	err := make(chan error, 1)
 	go func() {
+		fmt.Println("before")
 		err <- dhcp4.ListenAndServe(listenAddr, handler)
+		fmt.Println("after")
 	}()
 	var finalErr error
+	fmt.Println("waiting")
 	select {
 	case <-ctx.Done():
 		finalErr = ctx.Err()
@@ -42,6 +46,7 @@ func (d dhcpHandler) ServeDHCP(w dhcp4.ReplyWriter, req *dhcp4.Packet) {
 }
 
 func (d dhcpHandler) serveDHCP(w dhcp4.ReplyWriter, req *dhcp4.Packet) {
+	fmt.Println("serveDHCP")
 	mac := req.GetCHAddr()
 	if conf.ShouldIgnoreOUI(mac.String()) {
 		mainlog.With("mac", mac).Info("mac is in ignore list")

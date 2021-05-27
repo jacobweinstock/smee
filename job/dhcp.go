@@ -1,6 +1,7 @@
 package job
 
 import (
+	"fmt"
 	"strings"
 
 	dhcp4 "github.com/packethost/dhcp4-go"
@@ -30,9 +31,9 @@ func (j Job) ServeDHCP(w dhcp4.ReplyWriter, req *dhcp4.Packet) bool {
 
 	// If we are not the chosen provisioner for this piece of hardware
 	// do not respond to the DHCP request
-	if !j.areWeProvisioner() {
+	/*if !j.areWeProvisioner() {
 		return false
-	}
+	}*/
 
 	// setup reply
 	reply := dhcp.NewReply(w, req)
@@ -155,6 +156,6 @@ func (j Job) setPXEFilename(rep *dhcp4.Packet, isPacket, isARM, isUEFI bool) {
 		j.Error(err)
 		return
 	}
-
+	fmt.Println("filename", filename)
 	dhcp.SetFilename(rep, filename, conf.PublicIPv4, pxeClient)
 }

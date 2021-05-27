@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/packethost/pkg/log"
@@ -12,14 +13,32 @@ import (
 
 // serveProxy is a place holder for proxyDHCP being a proper subcommand
 // its goal is to serves proxyDHCP requests
-func serveProxy(ctx context.Context, logger log.Logger, proxyAddr string, b getBootfile, s getServer) error {
-	conn, err := dhcp4.NewConn(formatAddr(proxyAddr))
+func serveProxy(ctx context.Context, logger log.Logger, addr string, b getBootfile, s getServer) error {
+	conn, err := dhcp4.NewConn(formatAddr(addr))
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
 	return proxy.Serve(ctx, logger, conn, b, s)
+}
+
+func serverPXE(ctx context.Context, logger log.Logger, addr string, b getBootfile, s getServer) error {
+	pxe, err := net.ListenPacket("udp4", formatAddr(addr))
+	if err != nil {
+		return err
+	}
+	errCh := make(chan error)
+	go func() {
+		errCh <- proxy.ServePXE(ctx, logger, pxe, b, s)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case e := <-errCh:
+		return e
+	}
 }
 
 // getBootfile returns the Bootfile-Name that will be used for PXE boot responses [option 67]
@@ -31,29 +50,54 @@ type getBootfile func(mach proxy.Machine) string
 type getServer func() string
 
 // withBootfile defines how a Bootfile-Name is determined
+// TODO: handle 32bit vs 64bit
 func withBootfile(addr string) getBootfile {
 	return func(m proxy.Machine) string {
 		var filename string
 		fmt.Printf("machine: %+v\n", m)
 		// based on the machine arch set the filename
-		switch m.Arch {
-		case proxy.ArchHua, proxy.Arch2a2:
-			filename = "snp-hua.efi"
-		case proxy.ArchAarch64:
-			filename = "snp-nolacp.efi"
-		case proxy.ArchUefi:
-			filename = "ipxe.efi"
-		default:
-			filename = "undionly.kpxe"
+		/*
+			switch m.Arch {
+			//case proxy.ArchHua, proxy.Arch2a2:
+			//	filename = "snp-hua.efi"
+			//case proxy.ArchAarch64:
+			//	filename = "snp-nolacp.efi"
+			case proxy.ArchIA32:
+				filname = ""
+			case proxy.ArchX64:
+				filename = "ipxe.efi"
+			default:
+				filename = "undionly.kpxe"
+			}
+		*/
+
+		lookup := map[proxy.Firmware]string{
+			proxy.FirmwareX86Ipxe:        fmt.Sprintf("http://%v/auto.ipxe", addr),
+			proxy.FirmwareTinkerbellIpxe: fmt.Sprintf("http://%v/auto.ipxe", addr),
+			proxy.FirmwareX86IpxeEFI:     fmt.Sprintf("http://%v/auto.ipxe", addr),
+			proxy.FirmwareX86PC:          "undionly.kpxe",
+			proxy.FirmwareEFI32:          "ipxe.efi",
+			proxy.FirmwareEFI64:          "ipxe.efi",
+			proxy.FirmwareEFIBC:          "ipxe.efi",
 		}
-		switch m.Firm {
-		// if we're in iPXE we can use HTTP endpoint
-		case proxy.FirmwareX86Ipxe, proxy.FirmwareTinkerbellIpxe:
-			filename = fmt.Sprintf("http://%v/auto.ipxe", addr)
-		case proxy.FirmwareX86PC, proxy.FirmwareEFI32, proxy.FirmwareEFI64, proxy.FirmwareEFIBC:
-		default:
+		filename, found := lookup[m.Firm]
+		if !found {
 			filename = "/nonexistent"
 		}
+		fmt.Printf("filename: %v\n", filename)
+		/*
+			switch m.Firm {
+			// if we're in iPXE we can use HTTP endpoint
+			case proxy.FirmwareX86Ipxe, proxy.FirmwareTinkerbellIpxe:
+				filename = fmt.Sprintf("http://%v/auto.ipxe", addr)
+			case proxy.FirmwareX86PC:
+				filename = "undionly.kpxe"
+			case proxy.FirmwareEFI32, proxy.FirmwareEFI64, proxy.FirmwareEFIBC:
+				filename = "ipxe.efi"
+			default:
+				filename = "/nonexistent"
+			}
+		*/
 		return filename
 	}
 }

@@ -13,6 +13,7 @@ require (
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/go-cmp v0.5.5
 	github.com/google/uuid v1.2.0
+	github.com/inetaf/netaddr v0.0.0-20210526175434-db50905a50be
 	github.com/kevinburke/go-bindata v3.22.0+incompatible
 	github.com/libp2p/go-reuseport v0.0.2
 	github.com/packethost/cacher v0.0.0-20200825140532-0b62e6726807
@@ -37,6 +38,10 @@ require (
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
+	inet.af/netaddr v0.0.0-20200430175045-5aaf2097c7fc
 )
 
-replace github.com/sebest/xff v0.0.0-20160910043805-6c115e0ffa35 => github.com/packethost/xff v0.0.0-20190305172552-d3e9190c41b3
+replace (
+	github.com/inetaf/netaddr v0.0.0-20210526175434-db50905a50be => inet.af/netaddr v0.0.0-20210526175434-db50905a50be
+	github.com/sebest/xff v0.0.0-20160910043805-6c115e0ffa35 => github.com/packethost/xff v0.0.0-20190305172552-d3e9190c41b3
+)

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/inetaf/netaddr"
 	"github.com/packethost/pkg/log"
 	"go.universe.tf/netboot/dhcp4"
 )
@@ -41,6 +42,7 @@ const (
 	FirmwareEFIBC                          // 64-bit x86 processor running EFI
 	FirmwareX86Ipxe                        // "Classic" x86 BIOS running iPXE (no UNDI support)
 	FirmwareTinkerbellIpxe                 // Tinkerbell's iPXE, which has replaced the underlying firmware
+	FirmwareX86IpxeEFI
 )
 
 // Architecture types that Boots knows how to boot.
@@ -55,10 +57,6 @@ const (
 	ArchIA32 Architecture = iota
 	// ArchX64 is a 64-bit x86 machine (aka amd64 aka X64).
 	ArchX64
-	ArchAarch64
-	ArchUefi
-	Arch2a2
-	ArchHua
 )
 
 // Serve proxyDHCP on network provided by the lAddr,
@@ -91,6 +89,7 @@ func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(
 		}
 
 		go func() {
+			l.Info("serveProxyDHCP")
 			if err = isPXEPacket(pkt); err != nil {
 				l.Info(fmt.Sprintf("Ignoring packet from %s: %s", pkt.HardwareAddr, err))
 				return
@@ -102,13 +101,16 @@ func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(
 			}
 
 			l.Info(fmt.Sprintf("Got valid request to boot %s (%s)", mach.MAC, mach.Arch))
-
-			resp, err := createOffer(pkt, mach, net.ParseIP(s()), f, s)
+			fmt.Println("s()", s())
+			i, _ := netaddr.ParseIP(s())
+			resp, err := createOffer(pkt, mach, i.IPAddr().IP, f, s)
 			if err != nil {
 				l.Info(fmt.Sprintf("Failed to construct ProxyDHCP offer for %s: %s", pkt.HardwareAddr, err))
 				return
 			}
 
+			l.Info(fmt.Sprintf("resp: %+v", resp))
+			l.Info(fmt.Sprintf("resp.Options[43]: %+v", resp.Options[43]))
 			if err = conn.SendDHCP(resp, intf); err != nil {
 				l.Info(fmt.Sprintf("Failed to send ProxyDHCP offer for %s: %s", pkt.HardwareAddr, err))
 				return
@@ -156,16 +158,27 @@ func (a Architecture) String() string {
 		return "IA32"
 	case ArchX64:
 		return "X64"
-	case Arch2a2:
-		return "2a2"
-	case ArchAarch64:
-		return "aarch64"
-	case ArchUefi:
-		return "uefi"
-	case ArchHua:
-		return "hua"
 	default:
 		return "Unknown architecture"
+	}
+}
+
+func (f Firmware) String() string {
+	switch f {
+	case FirmwareX86PC:
+		return "Intel x86PC"
+	case FirmwareEFI32:
+		return "EFI IA32"
+	case FirmwareEFI64:
+		return "EFI x86-64"
+	case FirmwareEFIBC:
+		return "EFI BC"
+	case FirmwareX86Ipxe:
+		return "iPXE"
+	case FirmwareTinkerbellIpxe:
+		return "Tinkerbell"
+	default:
+		return "Unknown firmware"
 	}
 }
 
@@ -177,6 +190,7 @@ func processMachine(pkt *dhcp4.Packet) (mach Machine, err error) {
 	}
 	// Basic architecture and firmware identification, based purely on
 	// the PXE architecture option.
+	// https://www.rfc-editor.org/errata_search.php?rfc=4578
 	switch fwt {
 	case 0:
 		mach.Arch = ArchIA32
@@ -207,6 +221,9 @@ func processMachine(pkt *dhcp4.Packet) (mach Machine, err error) {
 		// drivers and chainloading to a UNDI stack won't work.
 		if userClass == "iPXE" && mach.Firm == FirmwareX86PC {
 			mach.Firm = FirmwareX86Ipxe
+		}
+		if userClass == "iPXE" && mach.Firm == FirmwareEFI64 {
+			mach.Firm = FirmwareX86IpxeEFI
 		}
 		// If the client identifies as "tinkerbell", we've already
 		// chainloaded this client to the full-featured copy of iPXE
@@ -240,7 +257,9 @@ func createOffer(pkt *dhcp4.Packet, mach Machine, serverIP net.IP, f func(mach M
 	}
 
 	switch mach.Firm {
-	case FirmwareEFI32, FirmwareEFI64, FirmwareEFIBC, FirmwareTinkerbellIpxe, FirmwareX86Ipxe:
+	case FirmwareEFI32, FirmwareEFI64, FirmwareEFIBC:
+
+	case FirmwareTinkerbellIpxe:
 	default:
 		// This is completely standard PXE: we tell the PXE client to
 		// bypass all the boot discovery rubbish that PXE supports,
@@ -254,9 +273,11 @@ func createOffer(pkt *dhcp4.Packet, mach Machine, serverIP net.IP, f func(mach M
 			return nil, fmt.Errorf("failed to serialize PXE Boot Server Discovery Control: %s", err)
 		}
 		resp.Options[43] = bs
+
 	}
 
 	resp.BootFilename = f(mach)
 	resp.BootServerName = s()
+
 	return resp, nil
 }
