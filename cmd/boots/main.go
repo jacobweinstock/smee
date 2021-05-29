@@ -113,7 +113,7 @@ func main() {
 		})
 		g.Go(func() error {
 			ln := mainlog.With("port", "4011")
-			return serverPXE(ctx, ln, "192.168.2.225:4011", withBootfile(*publicFDQN), withServer(*publicFDQN))
+			return serverPXE(ctx, ln, "0.0.0.0:4011", withBootfile(*publicFDQN), withServer(*publicFDQN))
 		})
 	} else {
 		job.SetProvisionerEngineName(provisionerEngineName)

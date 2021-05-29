@@ -44,7 +44,7 @@ func serverPXE(ctx context.Context, logger log.Logger, addr string, b getBootfil
 // getBootfile returns the Bootfile-Name that will be used for PXE boot responses [option 67]
 // normally based on the arch (based off option 93),
 // user-class (option 77), and firmware (based off option 93) of a booting machine
-type getBootfile func(mach proxy.Machine) string
+type getBootfile func(mach proxy.Firmware) string
 
 // getServer returns the Server-Name option that will be used for PXE boot responses [option 66]
 type getServer func() string
@@ -52,9 +52,8 @@ type getServer func() string
 // withBootfile defines how a Bootfile-Name is determined
 // TODO: handle 32bit vs 64bit
 func withBootfile(addr string) getBootfile {
-	return func(m proxy.Machine) string {
+	return func(f proxy.Firmware) string {
 		var filename string
-		fmt.Printf("machine: %+v\n", m)
 		// based on the machine arch set the filename
 		/*
 			switch m.Arch {
@@ -80,11 +79,13 @@ func withBootfile(addr string) getBootfile {
 			proxy.FirmwareEFI64:          "ipxe.efi",
 			proxy.FirmwareEFIBC:          "ipxe.efi",
 		}
-		filename, found := lookup[m.Firm]
+		filename, found := lookup[f]
 		if !found {
 			filename = "/nonexistent"
+
 		}
-		fmt.Printf("filename: %v\n", filename)
+		fmt.Printf("in proxy withBootfile firmware: %v\n", f)
+		fmt.Printf("in proxy withBootfile filename: %v\n", filename)
 		/*
 			switch m.Firm {
 			// if we're in iPXE we can use HTTP endpoint

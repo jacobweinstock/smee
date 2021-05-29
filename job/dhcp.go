@@ -1,7 +1,6 @@
 package job
 
 import (
-	"fmt"
 	"strings"
 
 	dhcp4 "github.com/packethost/dhcp4-go"
@@ -156,6 +155,5 @@ func (j Job) setPXEFilename(rep *dhcp4.Packet, isPacket, isARM, isUEFI bool) {
 		j.Error(err)
 		return
 	}
-	fmt.Println("filename", filename)
 	dhcp.SetFilename(rep, filename, conf.PublicIPv4, pxeClient)
 }

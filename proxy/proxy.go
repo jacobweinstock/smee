@@ -64,7 +64,7 @@ const (
 // normally based on the arch (based off option 93), user-class (option 77) and hardware ID (mac) of a booting machine
 //
 // s is the Server-Name option that will be used for PXE boot responses [option 66]
-func Serve(ctx context.Context, l log.Logger, conn *dhcp4.Conn, bootfile func(mach Machine) string, bootserver func() string) error {
+func Serve(ctx context.Context, l log.Logger, conn *dhcp4.Conn, bootfile func(f Firmware) string, bootserver func() string) error {
 	go serveProxyDHCP(ctx, l, conn, bootfile, bootserver)
 	<-ctx.Done()
 	return ctx.Err()
@@ -74,7 +74,7 @@ func Serve(ctx context.Context, l log.Logger, conn *dhcp4.Conn, bootfile func(ma
 // 1. listen for generic DHCP packets [conn.RecvDHCP()]
 // 2. check if the DHCP packet is requesting PXE boot [isBootDHCP(pkt)]
 // 3.
-func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(mach Machine) string, s func() string) {
+func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(f Firmware) string, s func() string) {
 	for {
 		// RecvDHCP is a blocking call
 		pkt, intf, err := conn.RecvDHCP()
@@ -89,7 +89,6 @@ func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(
 		}
 
 		go func() {
-			l.Info("serveProxyDHCP")
 			if err = isPXEPacket(pkt); err != nil {
 				l.Info(fmt.Sprintf("Ignoring packet from %s: %s", pkt.HardwareAddr, err))
 				return
@@ -101,7 +100,6 @@ func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(
 			}
 
 			l.Info(fmt.Sprintf("Got valid request to boot %s (%s)", mach.MAC, mach.Arch))
-			fmt.Println("s()", s())
 			i, _ := netaddr.ParseIP(s())
 			resp, err := createOffer(pkt, mach, i.IPAddr().IP, f, s)
 			if err != nil {
@@ -109,8 +107,6 @@ func serveProxyDHCP(ctx context.Context, l log.Logger, conn *dhcp4.Conn, f func(
 				return
 			}
 
-			l.Info(fmt.Sprintf("resp: %+v", resp))
-			l.Info(fmt.Sprintf("resp.Options[43]: %+v", resp.Options[43]))
 			if err = conn.SendDHCP(resp, intf); err != nil {
 				l.Info(fmt.Sprintf("Failed to send ProxyDHCP offer for %s: %s", pkt.HardwareAddr, err))
 				return
@@ -178,7 +174,7 @@ func (f Firmware) String() string {
 	case FirmwareTinkerbellIpxe:
 		return "Tinkerbell"
 	default:
-		return "Unknown firmware"
+		return fmt.Sprintf("Unknown firmware: %d", f)
 	}
 }
 
@@ -219,11 +215,15 @@ func processMachine(pkt *dhcp4.Packet) (mach Machine, err error) {
 		// that uses iPXE as the PXE "ROM"), special handling is
 		// needed because in this mode the client is using iPXE native
 		// drivers and chainloading to a UNDI stack won't work.
-		if userClass == "iPXE" && mach.Firm == FirmwareX86PC {
-			mach.Firm = FirmwareX86Ipxe
-		}
-		if userClass == "iPXE" && mach.Firm == FirmwareEFI64 {
-			mach.Firm = FirmwareX86IpxeEFI
+		if userClass == "iPXE" {
+			switch mach.Firm {
+			case FirmwareX86PC:
+				mach.Firm = FirmwareX86Ipxe
+			case FirmwareEFI64:
+				mach.Firm = FirmwareX86IpxeEFI
+			default:
+				fmt.Println("AAAAAAAAHHHHHHH")
+			}
 		}
 		// If the client identifies as "tinkerbell", we've already
 		// chainloaded this client to the full-featured copy of iPXE
@@ -238,7 +238,7 @@ func processMachine(pkt *dhcp4.Packet) (mach Machine, err error) {
 }
 
 // createOffer returns a dhcp packet to offer to the client
-func createOffer(pkt *dhcp4.Packet, mach Machine, serverIP net.IP, f func(mach Machine) string, s func() string) (*dhcp4.Packet, error) {
+func createOffer(pkt *dhcp4.Packet, mach Machine, serverIP net.IP, f func(f Firmware) string, s func() string) (*dhcp4.Packet, error) {
 	resp := &dhcp4.Packet{
 		Type:          dhcp4.MsgOffer,
 		TransactionID: pkt.TransactionID,
@@ -275,8 +275,9 @@ func createOffer(pkt *dhcp4.Packet, mach Machine, serverIP net.IP, f func(mach M
 		resp.Options[43] = bs
 
 	}
+	fmt.Println("in proxy firm", mach.Firm)
 
-	resp.BootFilename = f(mach)
+	resp.BootFilename = f(mach.Firm)
 	resp.BootServerName = s()
 
 	return resp, nil

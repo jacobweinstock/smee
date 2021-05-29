@@ -36,6 +36,9 @@ spec:
         - containerPort: 69
           name: tftp
           protocol: UDP
+        - containerPort: 4011
+          name: pxe
+          protocol: UDP
         env:
         - name: MIRROR_HOST
           value: "192.168.2.225:9090"
@@ -79,6 +82,10 @@ spec:
     port: 67
     protocol: UDP
     targetPort: 67
+  - name: pxe
+    port: 4011
+    protocol: UDP
+    targetPort: 4011
   selector:
     app: boots
   sessionAffinity: None
