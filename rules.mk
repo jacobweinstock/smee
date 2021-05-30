@@ -16,8 +16,6 @@ SHELL := bash
 CGO_ENABLED := 0
 export CGO_ENABLED
 
-export EMBED=$(shell PWD)/ipxe/boot.ipxe
-
 GitRev := $(shell git rev-parse --short HEAD)
 crossbinaries := cmd/boots/boots-linux-386 cmd/boots/boots-linux-amd64 cmd/boots/boots-linux-arm64 cmd/boots/boots-linux-armv6 cmd/boots/boots-linux-armv7
 cmd/boots/boots-linux-386:   FLAGS=GOARCH=386
@@ -100,6 +98,7 @@ ipxe/ipxe/build/${ipxev}.tar.gz: ipxev.mk ## Download iPXE source tarball
 	curl -fL https://github.com/ipxe/ipxe/archive/${ipxev}.tar.gz > $@
 	echo "${ipxeh}  $@" | sha512sum -c
 
+EMBED := $(shell pwd)/ipxe/boots.ipxe
 # given  t=$(patsubst ipxe/ipxe/build/%,%,$@)
 # and   $@=ipxe/ipxe/build/*/*
 # t       =                */*

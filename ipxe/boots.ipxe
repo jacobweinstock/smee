@@ -19,7 +19,7 @@ set x:int32 0
 
 set user-class tinkerbell
 
-echo Welcome to Neverland
+echo Welcome to Neverland                                                                                                                                                             
 
 # Try to get a filename from ProxyDHCP, retrying a couple of times if
 # we fail.
@@ -47,7 +47,7 @@ goto loop
 #autoboot
 chain ${filename}
 
-# Failure at this point probably means Pixiecore changed its mind
+# Failure at this point probably means Boots changed its mind
 # about whether this machine should be booted in the middle of the
 # boot cycle, so we had already handed off to iPXE, but now we're
 # no longer serving a boot script for it.
@@ -62,8 +62,8 @@ chain ${filename}
 :fail
 echo Failed to get a ProxyDHCP response after ${attempts} attempts
 echo
-echo If you are sure that Pixiecore is still trying to boot this machine,
-echo please file a bug at https://github.com/google/netboot .
+echo If you are sure that Boots is still trying to boot this machine,
+echo please file a bug at https://github.com/tinkerbell/boots .
 echo
 echo Rebooting in 5 seconds...
 sleep 5
