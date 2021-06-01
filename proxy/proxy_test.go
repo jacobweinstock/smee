@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 	"testing"
 	"time"
 
@@ -20,29 +19,28 @@ import (
 
 // bootfile returns the Bootfile-Name that will be used for PXE boot responses [option 67]
 // normally based on the arch (based off option 93), user-class (option 77) and hardware ID (mac) of a booting machine
-type bootfile func(mach Machine) string
+type bootfile func(f Firmware) string
 
 // bootserver returns the Server-Name option that will be used for PXE boot responses [option 66]
 type bootserver func() string
 
 // customBootfile defines how a Bootfile-Name is determined
-func customBootfile(publicFDQN string) bootfile {
-	return func(mach Machine) string {
+func customBootfile(addr string) bootfile {
+	return func(f Firmware) string {
 		var filename string
-		switch strings.ToLower(mach.UserClass) {
-		case "ipxe", "tinkerbell":
-			filename = fmt.Sprintf("http://%v/auto.ipxe", publicFDQN)
-		default:
-			switch strings.ToLower(mach.Arch.String()) {
-			case "hua", "2a2":
-				filename = "snp-hua.efi"
-			case "aarch64":
-				filename = "snp-nolacp.efi"
-			case "uefi":
-				filename = "ipxe.efi"
-			default:
-				filename = "undionly.kpxe"
-			}
+		lookup := map[Firmware]string{
+			FirmwareX86Ipxe:        fmt.Sprintf("http://%v/auto.ipxe", addr),
+			FirmwareTinkerbellIpxe: fmt.Sprintf("http://%v/auto.ipxe", addr),
+			FirmwareX86IpxeEFI:     fmt.Sprintf("http://%v/auto.ipxe", addr),
+			FirmwareX86PC:          "undionly.kpxe",
+			FirmwareEFI32:          "ipxe.efi",
+			FirmwareEFI64:          "ipxe.efi",
+			FirmwareEFIBC:          "ipxe.efi",
+		}
+		filename, found := lookup[f]
+		if !found {
+			filename = "/nonexistent"
+
 		}
 		return filename
 	}
@@ -358,13 +356,13 @@ func TestArchString(t *testing.T) {
 		input Architecture
 		want  string
 	}{
-		"ArchIA32":    {input: ArchIA32, want: "IA32"},
-		"ArchX64":     {input: ArchX64, want: "X64"},
-		"Arch2a2":     {input: Arch2a2, want: "2a2"},
-		"ArchAarch64": {input: ArchAarch64, want: "aarch64"},
-		"ArchUefi":    {input: ArchUefi, want: "uefi"},
-		"ArchHua":     {input: ArchHua, want: "hua"},
-		"unknown":     {input: Architecture(6), want: "Unknown architecture"},
+		"ArchIA32": {input: ArchIA32, want: "IA32"},
+		"ArchX64":  {input: ArchX64, want: "X64"},
+		//"Arch2a2":     {input: Arch2a2, want: "2a2"},
+		//"ArchAarch64": {input: ArchAarch64, want: "aarch64"},
+		//"ArchUefi":    {input: ArchUefi, want: "uefi"},
+		//"ArchHua":     {input: ArchHua, want: "hua"},
+		"unknown": {input: Architecture(6), want: "Unknown architecture"},
 	}
 
 	for name, tc := range tests {
