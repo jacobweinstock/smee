@@ -7,6 +7,7 @@ set -eu
 
 build=$1
 version=$2
+embed_file=$3
 short_version="$(echo "$version" | cut -c1-5)"
 
 topdir="ipxe-$version"
@@ -40,5 +41,5 @@ bin-arm64-efi/snp.efi)
 esac
 
 rm "$topdir"/src/config/local/general.*.h
-make -C "$topdir/src" VERSION_PATCH=255 EXTRAVERSION="+ ($short_version)" "$build"
+make -C "$topdir/src" EMBED=${embed_file} VERSION_PATCH=255 EXTRAVERSION="+ ($short_version)" "$build"
 cp "$topdir/src/$build" .
