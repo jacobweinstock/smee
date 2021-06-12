@@ -30,17 +30,17 @@ func (j Job) ServeDHCP(w dhcp4.ReplyWriter, req *dhcp4.Packet) bool {
 
 	// If we are not the chosen provisioner for this piece of hardware
 	// do not respond to the DHCP request
-	/*if !j.areWeProvisioner() {
-		return false
-	}*/
+	//if !j.areWeProvisioner() {
+	//	return false
+	//}
 
-	// setup reply
+	// setup reply, offer or ack
 	reply := dhcp.NewReply(w, req)
 	if reply == nil {
 		return false
 	}
 
-	// configure DHCP
+	// configure DHCP, populate the reply packet data
 	if !j.configureDHCP(reply.Packet(), req) {
 		j.Error(errors.New("unable to configure DHCP for yiaddr and DHCP options"))
 		return false

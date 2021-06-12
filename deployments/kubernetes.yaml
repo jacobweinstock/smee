@@ -19,51 +19,60 @@ spec:
         app: boots
     spec:
       hostAliases:
-      - ip: "192.168.2.225"
-        hostnames:
-        - "tinkerbell.tinkerbell"
+        - ip: "192.168.2.225"
+          hostnames:
+            - "tinkerbell.tinkerbell"
       containers:
-      - name: boots
-        image: quay.io/tinkerbell/boots:v0.1.0
-        args: ["-http-addr", ":80", "-tftp-addr", ":69", "-proxyDHCP-addr", ":67", "-proxyDHCP"]
-        ports:
-        - containerPort: 67
-          name: proxydhcp
-          protocol: UDP
-        - containerPort: 80
-          name: http
-          protocol: TCP
-        - containerPort: 69
-          name: tftp
-          protocol: UDP
-        - containerPort: 4011
-          name: pxe
-          protocol: UDP
-        env:
-        - name: MIRROR_HOST
-          value: "192.168.2.225:9090"
-        - name: PUBLIC_FQDN
-          value: "192.168.2.50"
-        - name: BOOTS_PUBLIC_FQDN
-          value: "192.168.2.50"
-        - name: TINKERBELL_GRPC_AUTHORITY
-          value: "tinkerbell.tinkerbell:42113"
-        - name: TINKERBELL_CERT_URL
-          value: "http://tinkerbell.tinkerbell:42114/cert"
-        - name: DATA_MODEL_VERSION
-          value: "1"
-        - name: FACILITY_CODE
-          value: "onprem"
-        - name: API_AUTH_TOKEN
-          value: "empty"
-        - name: API_CONSUMER_TOKEN
-          value: "empty"
-        - name: DOCKER_REGISTRY
-          value: "docker.io"
-        - name: REGISTRY_USERNAME
-          value: "none"
-        - name: REGISTRY_PASSWORD
-          value: "none"
+        - name: boots
+          image: quay.io/tinkerbell/boots:v0.1.0
+          args:
+            [
+              "-http-addr",
+              ":80",
+              "-tftp-addr",
+              ":69",
+              "-proxyDHCP-addr",
+              ":67",
+              "-proxyDHCP",
+            ]
+          ports:
+            - containerPort: 67
+              name: proxydhcp
+              protocol: UDP
+            - containerPort: 80
+              name: http
+              protocol: TCP
+            - containerPort: 69
+              name: tftp
+              protocol: UDP
+            - containerPort: 4011
+              name: pxe
+              protocol: UDP
+          env:
+            - name: MIRROR_HOST
+              value: "192.168.2.225:9090"
+            - name: PUBLIC_FQDN
+              value: "192.168.2.50"
+            - name: BOOTS_PUBLIC_FQDN
+              value: "192.168.2.50"
+            - name: TINKERBELL_GRPC_AUTHORITY
+              value: "tinkerbell.tinkerbell:42113"
+            - name: TINKERBELL_CERT_URL
+              value: "http://tinkerbell.tinkerbell:42114/cert"
+            - name: DATA_MODEL_VERSION
+              value: "1"
+            - name: FACILITY_CODE
+              value: "onprem"
+            - name: API_AUTH_TOKEN
+              value: "empty"
+            - name: API_CONSUMER_TOKEN
+              value: "empty"
+            - name: DOCKER_REGISTRY
+              value: "docker.io"
+            - name: REGISTRY_USERNAME
+              value: "none"
+            - name: REGISTRY_PASSWORD
+              value: "none"
 ---
 apiVersion: v1
 kind: Service
@@ -74,18 +83,18 @@ metadata:
     metallb.universe.tf/allow-shared-ip: boots
 spec:
   ports:
-  - name: tftp
-    port: 69
-    protocol: UDP
-    targetPort: 69
-  - name: proxydhcp
-    port: 67
-    protocol: UDP
-    targetPort: 67
-  - name: pxe
-    port: 4011
-    protocol: UDP
-    targetPort: 4011
+    - name: tftp
+      port: 69
+      protocol: UDP
+      targetPort: 69
+    - name: proxydhcp
+      port: 67
+      protocol: UDP
+      targetPort: 67
+    - name: pxe
+      port: 4011
+      protocol: UDP
+      targetPort: 4011
   selector:
     app: boots
   sessionAffinity: None
@@ -101,10 +110,10 @@ metadata:
     metallb.universe.tf/allow-shared-ip: boots
 spec:
   ports:
-  - name: http
-    port: 80
-    protocol: TCP
-    targetPort: 80
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 80
   selector:
     app: boots
   sessionAffinity: None
