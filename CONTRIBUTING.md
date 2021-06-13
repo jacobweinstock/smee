@@ -190,14 +190,14 @@ make vet
 
    ```bash
    # Run the compiled boots
-   sudo ./cmd/boots/boots -http-addr 192.168.2.225:80 -tftp-addr 192.168.2.225:69 -dhcp-addr 192.168.2.225:67
+   sudo -E ./cmd/boots/boots -http-addr 192.168.2.225:80 -tftp-addr 192.168.2.225:69 -dhcp-addr 192.168.2.225:67
    ```
 
 4. Faster iterating via `go run`
 
    ```bash
    # after the ipxe binaries have been compiled you can use `go run` to iterate a little more quickly than building the binary every time
-   sudo go run ./cmd/boots -http-addr 192.168.2.225:80 -tftp-addr 192.168.2.225:69 -dhcp-addr 192.168.2.225:67
+   sudo -E go run ./cmd/boots -http-addr 192.168.2.225:80 -tftp-addr 192.168.2.225:69 -dhcp-addr 192.168.2.225:67
    ```
 
 ## Pull Requests
