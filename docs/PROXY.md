@@ -25,7 +25,19 @@ sudo ./coredhcp --conf config.yml
 
 ```bash
 # start boots
-sudo BOOTS_PUBLIC_FQDN=192.168.2.225 MIRROR_HOST=192.168.2.225:9090 PUBLIC_FQDN=192.168.2.225 DOCKER_REGISTRY=docker.io REGISTRY_USERNAME=none REGISTRY_PASSWORD=none TINKERBELL_GRPC_AUTHORITY=localhost:42113 TINKERBELL_CERT_URL=http://localhost:42114/cert DATA_MODEL_VERSION=1 FACILITY_CODE=onprem API_AUTH_TOKEN=empty API_CONSUMER_TOKEN=empty go run ./cmd/boots -http-addr 192.168.2.225:80 -tftp-addr 192.168.2.225:69 -proxyDHCP-addr 192.168.2.225:67 -proxyDHCP
+export BOOTS_PUBLIC_FQDN=192.168.2.225
+export MIRROR_HOST=192.168.2.225:9090
+export PUBLIC_FQDN=192.168.2.225
+export DOCKER_REGISTRY=docker.io
+export REGISTRY_USERNAME=none
+export REGISTRY_PASSWORD=none
+export TINKERBELL_GRPC_AUTHORITY=localhost:42113
+export TINKERBELL_CERT_URL=http://localhost:42114/cert
+export DATA_MODEL_VERSION=1
+export FACILITY_CODE=onprem
+export API_AUTH_TOKEN=empty
+export API_CONSUMER_TOKEN=empty
+sudo -E go run ./cmd/boots -http-addr 192.168.2.225:80 -tftp-addr 192.168.2.225:69 -proxyDHCP-addr 192.168.2.225:67 -proxyDHCP
 
 # go and start a VM
 ```
