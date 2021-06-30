@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/tinkerbell/boots/proxy"
+	"github.com/tinkerbell/boots/pkg/proxy"
 	"golang.org/x/sync/errgroup"
 )
 

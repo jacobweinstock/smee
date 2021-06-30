@@ -99,6 +99,7 @@ func main() {
 			mainlog.Fatal(errors.Wrap(err, "retry syslog serve"))
 		}
 	}()
+
 	client, err = packet.NewClient(consumer, auth, apiBaseURL)
 	if err != nil {
 		mainlog.Fatal(err)
@@ -113,7 +114,7 @@ func main() {
 		})
 		g.Go(func() error {
 			ln := mainlog.With("port", "4011")
-			return serverPXE(ctx, ln, "192.168.2.225:4011", withBootfile(*publicFDQN), withServer(*publicFDQN))
+			return serverPXE(ctx, ln, "0.0.0.0:4011", withBootfile(*publicFDQN), withServer(*publicFDQN))
 		})
 	} else {
 		job.SetProvisionerEngineName(provisionerEngineName)
@@ -122,7 +123,7 @@ func main() {
 	}
 	mainlog.With("address", tftpAddr).Info("serving tftp")
 	g.Go(func() error { return ServeTFTP(ctx, *tftpAddr) })
-	mainlog.With("address", httpAddr).Info("serving http")
+	mainlog.With("address", httpAddr).Info("serving http ")
 	g.Go(func() error { return ServeHTTP(ctx, *httpAddr) })
 
 	err = g.Wait()

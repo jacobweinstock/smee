@@ -14,12 +14,15 @@
 # start nginx server to serve kernels and initrds
 (cd ~/repos/tinkerbell/sandbox/deploy/state/webroot && docker run -d --name bootloaders -v ${PWD}:/usr/share/nginx/html/ -p 9090:80 nginx:alpine)
 
-# start dhcp server
-multipass shell dhcp
-cd coredhcp/cmds/coredhcp
+# start a dhcp server (if needed)
+(cd deployments/dhcp; docker compose up)
+# multipass shell dhcp
+# cd coredhcp/cmds/coredhcp
 # leases.txt has needed dhcp host reservations, dhcp lease reservations are not supported
-sudo ./coredhcp --conf config.yml
+# sudo ./coredhcp --conf config.yml
 ```
+
+#### Run either Local Direct OR Kuberbetes
 
 #### Local Direct
 
@@ -51,14 +54,27 @@ minikube config set cpus 4
 minikube config set disk-size 65536
 minikube config set memory 4096
 minikube config set vm-driver virtualbox
-minikube start --feature-gates=RemoveSelfLink=false # https://github.com/metallb/metallb/issues/794
+minikube start --cni=cilium --feature-gates='RemoveSelfLink=false,EphemeralContainers=true' # https://github.com/metallb/metallb/issues/794
+
+VBoxManage controlvm minikube poweroff
+
+opts=""
+nic=$( VBoxManage showvminfo minikube --machinereadable | grep ^nic | grep '"none"' | head -n1 | cut -d= -f1 | cut -c4- )
+int=$( route get google.com | grep interface: | awk '{ print $2 }' )
+
+if [ -n "${MINIKUBE_NIC_BRIDGED_MAC:-}" ]; then
+  opts="--macaddress$nic $MINIKUBE_NIC_BRIDGED_MAC"
+fi
+
+VBoxManage modifyvm minikube --nic$nic bridged --bridgeadapter$nic $int $opts
+VBoxManage showvminfo minikube --machinereadable | grep ^macaddress$(VBoxManage showvminfo minikube --machinereadable | grep ^nic | grep bridged | cut -d= -f1 | cut -c4-)
 # once its up, turn it off so we can add the bridged network interface
 minikube stop
 # manually add the bridged interface or follow the reference above
 # edit the DHCP leases.txt from above with any IP in your subnet, restart DHCP
 minikube start
 # enable and configure metallb
-minikube addons enable metalb
+minikube addons enable metallb
 minikube addons configure metallb
 
 # update deployments/kubernetes.yaml

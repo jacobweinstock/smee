@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/packethost/pkg/log"
-	"github.com/tinkerbell/boots/proxy"
+	"github.com/tinkerbell/boots/pkg/proxy"
 	"go.universe.tf/netboot/dhcp4"
 )
 
