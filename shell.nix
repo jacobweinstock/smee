@@ -5,6 +5,9 @@ in { pkgs ? import (_pkgs.fetchFromGitHub {
   #branch@date: nixpkgs@2020-11-24
   rev = "6625284c397b44bc9518a5a1567c1b5aae455c08";
   sha256 = "1w0czzv53sg35gp7sr506facbmzd33jm34p6cg23fb9kz5rf5c89";
+  #branch@date: nixpkgs-unstable@2021-04-19
+  #rev = "c92ca95afb5043bc6faa0d526460584eccff2277";
+  #sha256 = "14vmijjjypd4b3fcvxzi53n7i5g3l5x9ih0ci1j6h1m9j5fkh9iv";
 }) { } }:
 
 with pkgs;

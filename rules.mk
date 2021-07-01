@@ -47,14 +47,8 @@ generated_files := \
 	
 .PHONY: $(generated_files)
 
-<<<<<<< HEAD
 # build all the ipxe binaries
 build_all_ipxe: tftp/ipxe/ipxe.efi tftp/ipxe/snp-hua.efi tftp/ipxe/snp-nolacp.efi tftp/ipxe/undionly.kpxe tftp/ipxe/snp-hua.efi
-=======
-
-# build all the ipxe binaries
-build_all_ipxe: ipxe/bin/ipxe.efi ipxe/bin/snp-hua.efi ipxe/bin/snp-nolacp.efi ipxe/bin/undionly.kpxe
->>>>>>> aca857d (Update TFTP to use builtin Go embed:)
 
 # go generate
 go_generate:
@@ -64,13 +58,12 @@ $(generated_files): bin/goimports
 	go generate -run="$(@F)" ./...
 	goimports -w $@
 
+# build all the ipxe binaries
+build_all_ipxe: ipxe/bin/ipxe.efi ipxe/bin/snp-hua.efi ipxe/bin/snp-nolacp.efi ipxe/bin/undionly.kpxe
+
 # this is quick and its really only for rebuilding when dev'ing, I wish go would
 # output deps in make syntax like gcc does... oh well this is good enough
-<<<<<<< HEAD
 cmd/boots/boots: $(shell git ls-files | grep -v -e vendor -e '_test.go' | grep '.go$$' ) build_all_ipxe go_generate syslog/facility_string.go syslog/severity_string.go
-=======
-cmd/boots/boots: $(shell git ls-files | grep -v -e vendor -e '_test.go' | grep '.go$$' ) bindata_by_os syslog/facility_string.go syslog/severity_string.go
->>>>>>> aca857d (Update TFTP to use builtin Go embed:)
 	go build -v -ldflags="-X main.GitRev=${GitRev}" -o $@ ./cmd/boots/
 
 include ipxev.mk
@@ -83,10 +76,6 @@ tftp/ipxe/undionly.kpxe: ipxe/ipxe/build/bin/undionly.kpxe
 tftp/ipxe/ipxe.efi tftp/ipxe/snp-nolacp.efi tftp/ipxe/undionly.kpxe:
 	mkdir -p tftp/ipxe
 	cp $^ $@
-# copy ipxe binaries into location available for go embed
-	cp $^ tftp/ipxe/
-# we dont build the snp-hua.efi binary. Its checked into git, so here we just copy it over
-	cp ipxe/bin/snp-hua.efi tftp/ipxe/
 
 tftp/ipxe/snp-hua.efi:
 	mkdir -p tftp/ipxe
