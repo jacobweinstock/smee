@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	_ "embed"
+
 	"github.com/packethost/pkg/log"
 	"github.com/pkg/errors"
 )
