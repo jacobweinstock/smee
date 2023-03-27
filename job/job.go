@@ -86,7 +86,7 @@ func (j Job) AllowPXE() bool {
 // OpenTelemetry: If a hardware record is available and has an in-band traceparent
 // specified, the returned context will have that trace set as its parent and the
 // spans will be linked.
-func (c *Creator) CreateFromDHCP(ctx context.Context, mac net.HardwareAddr, _ net.IP, circuitID string) (context.Context, *Job, error) {
+func (c *Creator) CreateFromDHCP(ctx context.Context, mac net.HardwareAddr, _ net.IP, _ string) (context.Context, *Job, error) {
 	j := &Job{
 		mac:    mac,
 		start:  time.Now(),
