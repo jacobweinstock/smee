@@ -3,14 +3,66 @@ package job
 import (
 	"net"
 
-	"github.com/tinkerbell/boots/client"
+	"github.com/tinkerbell/tink/pkg/apis/core/v1alpha1"
 )
 
-var rescueOS = &client.OperatingSystem{
-	Slug:    "alpine_3",
-	Distro:  "alpine",
-	Version: "3",
+func getArch(h *v1alpha1.HardwareSpec, mac string) string {
+	for _, elem := range h.Interfaces {
+		if elem.DHCP.MAC == mac {
+			return elem.DHCP.Arch
+		}
+	}
+
+	return ""
 }
+
+func isUEFI(h *v1alpha1.HardwareSpec, mac string) bool {
+	for _, elem := range h.Interfaces {
+		if elem.DHCP.MAC == mac {
+			return elem.DHCP.UEFI
+		}
+	}
+
+	return false
+}
+
+func (j *Job) getOperatingSystem() *v1alpha1.MetadataInstanceOperatingSystem {
+	if j.hardware != nil && j.hardware.Metadata != nil && j.hardware.Metadata.Instance != nil {
+		return j.hardware.Metadata.Instance.OperatingSystem
+	}
+
+	return &v1alpha1.MetadataInstanceOperatingSystem{}
+}
+
+func (j *Job) metadataState() string {
+	if j.hardware != nil && j.hardware.Metadata != nil {
+		return j.hardware.Metadata.State
+	}
+
+	return ""
+}
+
+func (j *Job) metadataInstance() *v1alpha1.MetadataInstance {
+	if j.hardware != nil && j.hardware.Metadata != nil {
+		return j.hardware.Metadata.Instance
+	}
+
+	return &v1alpha1.MetadataInstance{}
+}
+
+func (j *Job) getIPByMac(mac net.HardwareAddr) net.IP {
+	if j.hardware != nil {
+		for _, elem := range j.hardware.Interfaces {
+			if elem.DHCP.MAC == mac.String() {
+				return net.ParseIP(elem.DHCP.IP.Address)
+			}
+		}
+	}
+
+	return nil
+}
+
+/*
 
 func (j Job) IsARM() bool {
 	return j.Arch() == "aarch64"
@@ -74,14 +126,6 @@ func (j Job) IPXEScriptURL() string {
 	return ""
 }
 
-func (j Job) InstanceIPs() []client.IP {
-	if i := j.instance; i != nil {
-		return i.IPs
-	}
-
-	return nil
-}
-
 // PasswordHash will return the password hash from the job instance if it exists
 // PasswordHash first tries returning CryptedRootPassword if it exists and falls back to returning PasswordHash.
 func (j Job) PasswordHash() string {
@@ -105,12 +149,8 @@ func (j Job) CustomData() interface{} {
 	return nil
 }
 
-func (j Job) OperatingSystem() *client.OperatingSystem {
+func (j Job) OperatingSystem() *v1alpha1.MetadataInstanceOperatingSystem {
 	if i := j.instance; i != nil {
-		if i.Rescue {
-			return rescueOS
-		}
-
 		return j.hardware.OperatingSystem()
 	}
 
@@ -119,38 +159,6 @@ func (j Job) OperatingSystem() *client.OperatingSystem {
 
 func (j Job) ID() string {
 	return j.mac.String()
-}
-
-func (j Job) Interfaces() []client.Port {
-	if h := j.hardware; h != nil {
-		return h.Interfaces()
-	}
-
-	return nil
-}
-
-func (j Job) InterfaceName(i int) string {
-	if ifaces := j.Interfaces(); len(ifaces) > i {
-		return ifaces[i].Name
-	}
-
-	return ""
-}
-
-func (j Job) InterfaceMAC(i int) net.HardwareAddr {
-	if ifaces := j.Interfaces(); len(ifaces) > i {
-		return ifaces[i].MAC()
-	}
-
-	return nil
-}
-
-func (j Job) HardwareID() client.HardwareID {
-	if h := j.hardware; h != nil {
-		return h.HardwareID()
-	}
-
-	return ""
 }
 
 func (j Job) FacilityCode() string {
@@ -243,3 +251,4 @@ func (j Job) InitrdPath() string {
 
 	return ""
 }
+*/

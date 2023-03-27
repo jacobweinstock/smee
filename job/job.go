@@ -6,13 +6,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/equinix-labs/otel-init-go/otelhelpers"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	"github.com/tinkerbell/boots/client"
 	"github.com/tinkerbell/boots/conf"
 	"github.com/tinkerbell/boots/dhcp"
-	"go.opentelemetry.io/otel/trace"
+	"github.com/tinkerbell/boots/hardware"
+	"github.com/tinkerbell/tink/pkg/apis/core/v1alpha1"
 )
 
 // JobManager creates jobs.
@@ -23,7 +22,7 @@ type Manager interface {
 
 // Creator is a type that can create jobs.
 type Creator struct {
-	finder             client.HardwareFinder
+	finder             hardware.Finder
 	logger             logr.Logger
 	ExtraKernelParams  []string
 	Registry           string
@@ -35,7 +34,7 @@ type Creator struct {
 }
 
 // NewCreator returns a manager that can create jobs.
-func NewCreator(logger logr.Logger, finder client.HardwareFinder) *Creator {
+func NewCreator(logger logr.Logger, finder hardware.Finder) *Creator {
 	return &Creator{
 		finder: finder,
 		logger: logger,
@@ -48,8 +47,9 @@ type Job struct {
 	ip       net.IP
 	start    time.Time
 	dhcp     dhcp.Config
-	hardware client.Hardware
-	instance *client.Instance
+	hardware *v1alpha1.HardwareSpec
+	instance *v1alpha1.MetadataInstance
+	ifDHCP   *v1alpha1.Interface
 
 	Logger             logr.Logger
 	NextServer         net.IP
@@ -67,14 +67,19 @@ type Job struct {
 // AllowPxe returns the value from the hardware data
 // in tink server defined at network.interfaces[].netboot.allow_pxe.
 func (j Job) AllowPXE() bool {
-	if j.hardware.HardwareAllowPXE(j.mac) {
-		return true
-	}
-	if j.InstanceID() == "" {
-		return false
+	if j.hardware != nil {
+		for _, elem := range j.hardware.Interfaces {
+			hwAddr, err := net.ParseMAC(elem.DHCP.MAC)
+			if err != nil {
+				continue
+			}
+			if bytes.Equal(hwAddr, j.mac) {
+				return *elem.Netboot.AllowPXE
+			}
+		}
 	}
 
-	return j.instance.AllowPXE
+	return false
 }
 
 // CreateFromDHCP looks up hardware using the MAC from cacher to create a job.
@@ -87,12 +92,28 @@ func (c *Creator) CreateFromDHCP(ctx context.Context, mac net.HardwareAddr, giad
 		start:  time.Now(),
 		Logger: c.logger,
 	}
-	d, err := c.finder.ByMAC(ctx, mac, giaddr, circuitID)
+	d, err := c.finder.FindByMAC(ctx, mac)
 	if err != nil {
 		return ctx, nil, errors.WithMessage(err, "discover from dhcp message")
 	}
+	m := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	for _, elem := range d.Spec.Interfaces {
+		if elem.DHCP != nil && elem.DHCP.MAC == mac.String() {
+			m, err = net.ParseMAC(elem.DHCP.MAC)
+			if err != nil {
+				m = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+			}
+			j.ip = net.ParseIP(elem.DHCP.IP.Address)
+		}
+	}
+	if bytes.Equal(m, net.HardwareAddr{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}) {
+		c.logger.Error(errors.New("somehow got a zero mac"), "somehow got a zero mac")
 
-	newCtx, err := j.setup(ctx, d)
+		return ctx, nil, errors.New("somehow got a zero mac")
+	}
+	j.mac = m
+
+	newCtx, err := j.setup(ctx, &d.Spec)
 	if err != nil {
 		return ctx, nil, err
 	}
@@ -132,11 +153,20 @@ func (c *Creator) createFromIP(ctx context.Context, ip net.IP) (context.Context,
 	}
 
 	c.logger.Info("discovering from ip", "ip", ip)
-	d, err := c.finder.ByIP(ctx, ip)
+	d, err := c.finder.FindByIP(ctx, ip)
 	if err != nil {
 		return ctx, nil, errors.WithMessage(err, "discovering from ip address")
 	}
-	mac := d.GetMAC(ip)
+	mac := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	for _, elem := range d.Spec.Interfaces {
+		if elem.DHCP != nil && elem.DHCP.IP != nil && elem.DHCP.IP.Address == ip.String() {
+			mac, err = net.ParseMAC(elem.DHCP.MAC)
+			if err != nil {
+				mac = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+			}
+			j.ip = net.ParseIP(elem.DHCP.IP.Address)
+		}
+	}
 	if bytes.Equal(mac, net.HardwareAddr{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}) {
 		c.logger.Error(errors.New("somehow got a zero mac"), "somehow got a zero mac", "ip", ip)
 
@@ -144,7 +174,7 @@ func (c *Creator) createFromIP(ctx context.Context, ip net.IP) (context.Context,
 	}
 	j.mac = mac
 
-	ctx, err = j.setup(ctx, d)
+	ctx, err = j.setup(ctx, &d.Spec)
 	if err != nil {
 		return ctx, nil, err
 	}
@@ -158,52 +188,41 @@ func (c *Creator) createFromIP(ctx context.Context, ip net.IP) (context.Context,
 // so that it points at the incoming traceparent from the hardware. A span
 // link is applied in the process. The returned context's parent trace will
 // be set to the traceparent value.
-func (j *Job) setup(ctx context.Context, d client.Discoverer) (context.Context, error) {
-	dh := d.Hardware()
+func (j *Job) setup(ctx context.Context, hw *v1alpha1.HardwareSpec) (context.Context, error) {
+	j.hardware = hw
+	j.instance = j.metadataInstance()
+	j.Logger = j.Logger.WithValues("instance.id", j.instance.ID)
 
-	j.Logger = j.Logger.WithValues("mac", j.mac, "hardware.id", dh.HardwareID())
-
-	// When there is a traceparent in the hw record, create a link on the current
-	// trace and replace ctx with one that is parented to the traceparent.
-	if dh.GetTraceparent() != "" {
-		fromLink := trace.LinkFromContext(ctx)
-		ctx = otelhelpers.ContextWithTraceparentString(ctx, dh.GetTraceparent())
-		trace.WithLinks(fromLink, trace.LinkFromContext(ctx))
-	}
-
-	// mac is needed to find the hostname for DiscoveryCacher
-	d.SetMAC(j.mac)
-
-	// (kdeng3849) is this necessary?
-	j.hardware = d.Hardware()
-
-	// (kdeng3849) how can we remove this?
-	j.instance = d.Instance()
-	if j.instance == nil {
-		j.instance = &client.Instance{}
-	} else {
-		j.Logger = j.Logger.WithValues("instance.id", j.InstanceID())
-	}
-
-	ip := d.GetIP(j.mac)
-	if ip.Address == nil {
+	j.ip = j.getIPByMac(j.mac)
+	if j.ip == nil {
 		return ctx, errors.New("could not find IP address")
 	}
-	j.dhcp.Setup(ip.Address, ip.Netmask, ip.Gateway)
-	j.dhcp.SetLeaseTime(d.LeaseTime(j.mac))
-	j.dhcp.SetDHCPServer(conf.PublicIPv4) // used for the unicast DHCPREQUEST
-	j.dhcp.SetDNSServers(d.DNSServers(j.mac))
 
-	hostname, err := d.Hostname()
-	if err != nil {
-		return ctx, err
+	for _, iface := range hw.Interfaces {
+		if iface.DHCP != nil && iface.DHCP.IP != nil && (iface.DHCP.IP.Address == j.ip.String() || iface.DHCP.MAC == j.mac.String()) {
+			j.ifDHCP = &iface
+		}
 	}
-	if hostname != "" {
+
+	ip := net.ParseIP(j.ifDHCP.DHCP.IP.Address)
+	netmask := net.ParseIP(j.ifDHCP.DHCP.IP.Netmask)
+	gateway := net.ParseIP(j.ifDHCP.DHCP.IP.Gateway)
+	j.dhcp.Setup(j.Logger, ip, netmask, gateway)
+	j.dhcp.SetLeaseTime(time.Duration(j.ifDHCP.DHCP.LeaseTime))
+	j.dhcp.SetDHCPServer(conf.PublicIPv4) // used for the unicast DHCPREQUEST
+	ns := []net.IP{}
+	for _, n := range j.ifDHCP.DHCP.NameServers {
+		s := net.ParseIP(n)
+		ns = append(ns, s)
+	}
+	j.dhcp.SetDNSServers(ns)
+
+	if hostname := j.ifDHCP.DHCP.Hostname; hostname != "" {
 		j.dhcp.SetHostname(hostname)
 	}
 
-	// set option 43.116 to vlan id. If dh.GetVLANID is "", then j.dhcp.SetOpt43SubOpt is a no-op.
-	j.dhcp.SetOpt43SubOpt(116, dh.GetVLANID(j.mac))
+	// set option 43.116 to vlan id. If ifRecord.DHCP.VLANID is "", then j.dhcp.SetOpt43SubOpt is a no-op.
+	j.dhcp.SetOpt43SubOpt(116, j.ifDHCP.DHCP.VLANID)
 
 	return ctx, nil
 }

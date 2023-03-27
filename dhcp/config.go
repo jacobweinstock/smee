@@ -60,7 +60,8 @@ func (c *Config) Hostname() string {
 	return hn
 }
 
-func (c *Config) Setup(address, netmask, gateway net.IP) {
+func (c *Config) Setup(log logr.Logger, address, netmask, gateway net.IP) {
+	c.Log = log
 	if v4 := address.To4(); v4 != nil {
 		c.addr = v4
 		c.opts = make(dhcp4.OptionMap, 255)

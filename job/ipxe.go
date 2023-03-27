@@ -56,11 +56,9 @@ func (j Job) osieDownloadURL(osieURL string, osieFullURLOverride string) string 
 	if osieFullURLOverride != "" {
 		return osieFullURLOverride
 	}
-	if u := j.OSIEBaseURL(); u != "" {
+
+	if u := j.ifDHCP.Netboot.OSIE.BaseURL; u != "" {
 		return u
-	}
-	if j.OSIEVersion() != "" {
-		return osieURL + "/" + j.OSIEVersion()
 	}
 
 	return osieURL + "/current"
@@ -68,17 +66,17 @@ func (j Job) osieDownloadURL(osieURL string, osieFullURLOverride string) string 
 
 func (j Job) defaultScript(span trace.Span) (string, error) {
 	auto := ipxe.Hook{
-		Arch:              j.Arch(),
+		Arch:              j.ifDHCP.DHCP.Arch,
 		Console:           "",
 		DownloadURL:       j.osieDownloadURL(conf.MirrorBaseURL+"/misc/osie", j.OSIEURLOverride),
 		ExtraKernelParams: j.ExtraKernelParams,
-		Facility:          j.FacilityCode(),
-		HWAddr:            j.PrimaryNIC().String(),
+		Facility:          j.hardware.Metadata.Facility.FacilityCode,
+		HWAddr:            j.mac.String(),
 		SyslogHost:        conf.PublicSyslogFQDN,
 		TinkerbellTLS:     j.TinkServerTLS,
 		TinkGRPCAuthority: j.TinkServerGRPCAddr,
 		VLANID:            j.VLANID(),
-		WorkerID:          j.InstanceID(),
+		WorkerID:          j.instance.ID,
 	}
 	if sc := span.SpanContext(); sc.IsSampled() {
 		auto.TraceID = sc.TraceID().String()
@@ -88,16 +86,17 @@ func (j Job) defaultScript(span trace.Span) (string, error) {
 }
 
 func (j Job) customScript() (string, error) {
-	if chain := j.hardware.IPXEURL(j.mac); chain != "" {
-		u, err := url.Parse(chain)
+	if j.ifDHCP != nil && j.ifDHCP.Netboot != nil && j.ifDHCP.Netboot.IPXE != nil && j.ifDHCP.Netboot.IPXE.URL != "" {
+		u, err := url.Parse(j.ifDHCP.Netboot.IPXE.URL)
 		if err != nil {
 			return "", errors.Wrap(err, "invalid custom chain URL")
 		}
 		c := ipxe.Custom{Chain: u}
 		return ipxe.GenerateTemplate(c, ipxe.CustomScript)
 	}
-	if script := j.hardware.IPXEScript(j.mac); script != "" {
-		c := ipxe.Custom{Script: script}
+
+	if j.ifDHCP != nil && j.ifDHCP.Netboot != nil && j.ifDHCP.Netboot.IPXE != nil && j.ifDHCP.Netboot.IPXE.Contents != "" {
+		c := ipxe.Custom{Script: j.ifDHCP.Netboot.IPXE.Contents}
 		return ipxe.GenerateTemplate(c, ipxe.CustomScript)
 	}
 

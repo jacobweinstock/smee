@@ -14,9 +14,8 @@ import (
 )
 
 const (
-	WorkflowWorkerNonTerminalStateIndex = ".status.state.nonTerminalWorker"
-	HardwareMACAddrIndex                = ".spec.interfaces.dhcp.mac"
-	HardwareIPAddrIndex                 = ".spec.interfaces.dhcp.ip"
+	HardwareMACAddrIndex = ".spec.interfaces.dhcp.mac"
+	HardwareIPAddrIndex  = ".spec.interfaces.dhcp.ip"
 )
 
 // NewCluster returns a controller-runtime cluster.Cluster with the Tinkerbell runtime
@@ -61,11 +60,6 @@ func NewCluster(config clientcmd.ClientConfig) (cluster.Cluster, error) {
 		field        string
 		extractValue client.IndexerFunc
 	}{
-		{
-			&v1alpha1.Workflow{},
-			WorkflowWorkerNonTerminalStateIndex,
-			controllers.WorkflowWorkerNonTerminalStateIndexFunc,
-		},
 		{
 			&v1alpha1.Hardware{},
 			HardwareIPAddrIndex,

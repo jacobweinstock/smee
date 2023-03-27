@@ -13,8 +13,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sebest/xff"
-	"github.com/tinkerbell/boots/client"
 	"github.com/tinkerbell/boots/conf"
+	"github.com/tinkerbell/boots/hardware"
 	"github.com/tinkerbell/boots/httplog"
 	"github.com/tinkerbell/boots/job"
 	"github.com/tinkerbell/boots/metrics"
@@ -22,7 +22,7 @@ import (
 )
 
 type BootsHTTPServer struct {
-	finder     client.HardwareFinder
+	finder     hardware.Finder
 	jobManager job.Manager
 	logger     logr.Logger
 }

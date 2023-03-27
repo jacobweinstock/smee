@@ -1,11 +1,6 @@
 package standalone
 
-import (
-	"net"
-	"time"
-
-	"github.com/tinkerbell/boots/client"
-)
+/*
 
 // DiscoveryStandalone implements the Discovery interface for standalone operation.
 type DiscoverStandalone struct {
@@ -81,3 +76,4 @@ func (ds *DiscoverStandalone) SetMAC(net.HardwareAddr) {
 func (ds *DiscoverStandalone) GetVLANID(net.HardwareAddr) string {
 	return ""
 }
+*/

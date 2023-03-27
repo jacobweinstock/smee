@@ -1,10 +1,6 @@
 package standalone
 
-import (
-	"net"
-
-	"github.com/tinkerbell/boots/client"
-)
+/*
 
 // HardwareStandalone implements the Hardware interface for standalone operation.
 type HardwareStandalone struct {
@@ -137,3 +133,4 @@ func (hs *HardwareStandalone) GetTraceparent() string {
 func (hs *HardwareStandalone) GetVLANID(net.HardwareAddr) string {
 	return ""
 }
+*/

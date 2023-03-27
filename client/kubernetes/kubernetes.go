@@ -6,7 +6,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	"github.com/tinkerbell/boots/client"
 	"github.com/tinkerbell/tink/pkg/apis/core/v1alpha1"
 	"github.com/tinkerbell/tink/pkg/controllers"
 	"k8s.io/client-go/tools/clientcmd"
@@ -58,45 +57,45 @@ func (f *Finder) Start(ctx context.Context) error {
 }
 
 // ByIP returns a Discoverer for a particular IP.
-func (f *Finder) ByIP(ctx context.Context, ip net.IP) (client.Discoverer, error) {
+func (f *Finder) FindByIP(ctx context.Context, ip net.IP) (v1alpha1.Hardware, error) {
 	hardwareList := &v1alpha1.HardwareList{}
 
 	err := f.clientFunc().List(ctx, hardwareList, &crclient.MatchingFields{
 		controllers.HardwareIPAddrIndex: ip.String(),
 	})
 	if err != nil {
-		return nil, errors.Wrap(err, "failed listing hardware")
+		return v1alpha1.Hardware{}, errors.Wrap(err, "failed listing hardware")
 	}
 
 	if len(hardwareList.Items) == 0 {
-		return nil, errors.New("no hardware found")
+		return v1alpha1.Hardware{}, errors.New("no hardware found")
 	}
 
 	if len(hardwareList.Items) > 1 {
-		return nil, errors.Errorf("got %d hardware for ip %s, expected only 1", len(hardwareList.Items), ip)
+		return v1alpha1.Hardware{}, errors.Errorf("got %d hardware for ip %s, expected only 1", len(hardwareList.Items), ip)
 	}
 
-	return NewK8sDiscoverer(&hardwareList.Items[0]), nil
+	return hardwareList.Items[0], nil
 }
 
 // ByMAC returns a Discoverer for a particular MAC address.
-func (f *Finder) ByMAC(ctx context.Context, mac net.HardwareAddr, _ net.IP, _ string) (client.Discoverer, error) {
+func (f *Finder) FindByMAC(ctx context.Context, mac net.HardwareAddr) (v1alpha1.Hardware, error) {
 	hardwareList := &v1alpha1.HardwareList{}
 
 	err := f.clientFunc().List(ctx, hardwareList, &crclient.MatchingFields{
 		controllers.HardwareMACAddrIndex: mac.String(),
 	})
 	if err != nil {
-		return nil, errors.Wrap(err, "failed listing hardware")
+		return v1alpha1.Hardware{}, errors.Wrap(err, "failed listing hardware")
 	}
 
 	if len(hardwareList.Items) == 0 {
-		return nil, errors.New("no hardware found")
+		return v1alpha1.Hardware{}, errors.New("no hardware found")
 	}
 
 	if len(hardwareList.Items) > 1 {
-		return nil, errors.Errorf("got %d hardware for mac %s, expected only 1", len(hardwareList.Items), mac)
+		return v1alpha1.Hardware{}, errors.Errorf("got %d hardware for mac %s, expected only 1", len(hardwareList.Items), mac)
 	}
 
-	return NewK8sDiscoverer(&hardwareList.Items[0]), nil
+	return hardwareList.Items[0], nil
 }

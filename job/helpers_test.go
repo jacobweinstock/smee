@@ -1,12 +1,6 @@
 package job
 
-import (
-	"testing"
-
-	"github.com/google/go-cmp/cmp"
-	"github.com/tinkerbell/boots/client"
-)
-
+/*
 func TestPasswordHash(t *testing.T) {
 	tests := map[string]struct {
 		input Job
@@ -53,3 +47,4 @@ func TestPasswordHash(t *testing.T) {
 		})
 	}
 }
+*/

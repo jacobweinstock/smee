@@ -3,30 +3,13 @@ package job
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	dhcp4 "github.com/packethost/dhcp4-go"
 	"github.com/pkg/errors"
-	"github.com/tinkerbell/boots/client"
 	"github.com/tinkerbell/boots/dhcp"
 	"github.com/tinkerbell/boots/ipxe"
 	"go.opentelemetry.io/otel/trace"
 )
-
-func IsSpecialOS(i *client.Instance) bool {
-	if i == nil {
-		return false
-	}
-	var slug string
-	if i.OSV.Slug != "" {
-		slug = i.OSV.Slug
-	}
-	if i.OS.Slug != "" {
-		slug = i.OS.Slug
-	}
-
-	return slug == "custom_ipxe" || slug == "custom" || strings.HasPrefix(slug, "vmware")
-}
 
 // ServeDHCP responds to DHCP packets. Returns true if it replied. Returns false
 // if it did not reply, often for good reason. If it was an error, error will be
@@ -64,14 +47,15 @@ func (j Job) configureDHCP(ctx context.Context, rep, req *dhcp4.Packet) bool {
 
 	if dhcp.SetupPXE(ctx, j.Logger, rep, req) {
 		isARM := dhcp.IsARM(req)
-		if dhcp.Arch(req) != j.Arch() {
-			span.AddEvent(fmt.Sprintf("arch mismatch: got %q and expected %q", dhcp.Arch(req), j.Arch()))
-			j.Logger.Info("arch mismatch, using dhcp", "dhcp", dhcp.Arch(req), "job", j.Arch())
+		arch := getArch(j.hardware, req.GetCHAddr().String())
+		if dhcp.Arch(req) != arch {
+			span.AddEvent(fmt.Sprintf("arch mismatch: got %q and expected %q", dhcp.Arch(req), arch))
+			j.Logger.Info("arch mismatch, using dhcp", "dhcpArch", dhcp.Arch(req), "jobArch", arch)
 		}
 
-		isUEFI := dhcp.IsUEFI(req)
-		if isUEFI != j.IsUEFI() {
-			j.Logger.Info("uefi mismatch, using dhcp", "dhcp", isUEFI, "job", j.IsUEFI())
+		isUEFIReq := dhcp.IsUEFI(req)
+		if isUEFIReq != isUEFI(j.hardware, req.GetCHAddr().String()) {
+			j.Logger.Info("uefi mismatch, using dhcp", "dhcpUEFI", isUEFIReq, "jobUEFI", isUEFI(j.hardware, req.GetCHAddr().String()))
 		}
 
 		isTinkerbellIPXE := ipxe.IsTinkerbellIPXE(req)
@@ -79,7 +63,7 @@ func (j Job) configureDHCP(ctx context.Context, rep, req *dhcp4.Packet) bool {
 			ipxe.Setup(rep)
 		}
 
-		j.setPXEFilename(rep, isTinkerbellIPXE, isARM, isUEFI, dhcp.IsHTTPClient(req))
+		j.setPXEFilename(rep, isTinkerbellIPXE, isARM, isUEFIReq, dhcp.IsHTTPClient(req))
 	} else {
 		span.AddEvent("did not SetupPXE because packet is not a PXE request")
 	}
@@ -88,23 +72,24 @@ func (j Job) configureDHCP(ctx context.Context, rep, req *dhcp4.Packet) bool {
 }
 
 func (j Job) setPXEFilename(rep *dhcp4.Packet, isTinkerbellIPXE, isARM, isUEFI, isHTTPClient bool) {
-	if j.HardwareState() == "in_use" {
-		if j.InstanceID() == "" {
+	if j.metadataState() == "in_use" {
+		if j.metadataInstance().ID == "" {
 			j.Logger.Error(errors.New("setPXEFilename called on a job with no instance"), "setPXEFilename called on a job with no instance")
 
 			return
 		}
 
-		if j.instance.State != "active" {
-			j.Logger.Info("device should NOT be trying to PXE boot", "hardware.state", j.HardwareState(), "instance.state", j.instance.State)
+		if j.metadataInstance().State != "active" {
+			j.Logger.Info("device should NOT be trying to PXE boot", "hardware.state", j.metadataState(), "instance.state", j.metadataInstance().State)
 
 			return
 		}
 
 		// ignore custom_ipxe because we always do dhcp for it and we'll want to do /nonexistent filename so
 		// nics don't timeout.... but why though?
-		if !j.AllowPXE() && j.hardware.OperatingSystem().OsSlug != "custom_ipxe" {
-			j.Logger.Info("device should NOT be trying to PXE boot", "hardware.state", j.HardwareState(), "allow_pxe", j.AllowPXE(), "os", j.hardware.OperatingSystem().OsSlug)
+		if !j.AllowPXE() && j.getOperatingSystem().OsSlug != "custom_ipxe" {
+			// if !j.AllowPXE() && j.hardware.OperatingSystem().OsSlug != "custom_ipxe" {
+			j.Logger.Info("device should NOT be trying to PXE boot", "hardware.state", j.metadataState(), "allow_pxe", j.AllowPXE(), "os", j.getOperatingSystem().OsSlug)
 
 			return
 		}
@@ -134,8 +119,8 @@ func (j Job) setPXEFilename(rep *dhcp4.Packet, isTinkerbellIPXE, isARM, isUEFI, 
 		//
 		// TODO(mmlb) try to move this logic to much earlier in the function, maybe all the way as the first thing even.
 
-		os := j.OperatingSystem()
-		j.Logger.Info("info", "instance.state", j.instance.State, "os_slug", os.Slug, "os_distro", os.Distro, "os_version", os.Version)
+		os := j.getOperatingSystem()
+		j.Logger.Info("info", "instance.state", j.metadataState(), "os_slug", os.Slug, "os_distro", os.Distro, "os_version", os.Version)
 		filename = "nonexistent"
 	default:
 		isHTTPClient = true
@@ -154,5 +139,9 @@ func (j Job) setPXEFilename(rep *dhcp4.Packet, isTinkerbellIPXE, isARM, isUEFI, 
 
 // VLANID returns the VLAN ID for the job.
 func (j *Job) VLANID() string {
-	return j.hardware.GetVLANID(j.mac)
+	if j.ifDHCP != nil && j.ifDHCP.DHCP.VLANID != "" {
+		return j.ifDHCP.DHCP.VLANID
+	}
+
+	return ""
 }

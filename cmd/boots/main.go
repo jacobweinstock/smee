@@ -24,10 +24,10 @@ import (
 	"github.com/peterbourgon/ff/v3"
 	"github.com/peterbourgon/ff/v3/ffcli"
 	"github.com/pkg/errors"
-	"github.com/tinkerbell/boots/client"
 	"github.com/tinkerbell/boots/client/kubernetes"
 	"github.com/tinkerbell/boots/client/standalone"
 	"github.com/tinkerbell/boots/conf"
+	"github.com/tinkerbell/boots/hardware"
 	"github.com/tinkerbell/boots/job"
 	"github.com/tinkerbell/boots/metrics"
 	"github.com/tinkerbell/boots/syslog"
@@ -227,8 +227,8 @@ func main() {
 	}
 }
 
-func getHardwareFinder(l logr.Logger, c *config) (client.HardwareFinder, error) {
-	var hf client.HardwareFinder
+func getHardwareFinder(l logr.Logger, c *config) (hardware.Finder, error) {
+	var hf hardware.Finder
 	var err error
 
 	switch os.Getenv("DATA_MODEL_VERSION") {

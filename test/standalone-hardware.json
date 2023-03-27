@@ -1,74 +1,166 @@
 [
   {
-    "id": "f9f56dff-098a-4c5f-a51c-19ad35de85d1",
-    "traceparent": "00-deadbeefcafedeadbeefcafedeadbeef-123456789abcdef0-01",
-    "network": {
+    "spec": {
       "interfaces": [
         {
+          "netboot": {
+            "allowPXE": true,
+            "allowWorkflow": true,
+            "ipxe": {
+              "url": "http://netboot.xyz",
+              "contents": "autoboot"
+            },
+            "osie": {
+              "baseURL": "http://localhost/kernels?",
+              "kernel": "5.0.1-fake-version",
+              "initrd": "initramfs.cpio.gz"
+            }
+          },
           "dhcp": {
             "mac": "02:00:00:00:00:ff",
+            "hostname": "boots-test-client",
+            "lease_time": 60,
+            "name_servers": [
+              "8.8.8.8"
+            ],
+            "time_servers": [
+              "pool.ntp.org"
+            ],
+            "arch": "x86_64",
+            "uefi": true,
+            "iface_name": "eth0",
             "ip": {
               "address": "192.168.99.43",
               "netmask": "255.255.255.0",
               "gateway": "192.168.99.1",
-              "family": "ipv4",
-              "public": false,
-              "management": false
+              "family": 4
             },
-            "hostname": "boots-test-client",
-            "lease_time": 60,
-            "name_servers": ["8.8.8.8"],
-            "time_servers": ["127.0.0.1"],
-            "arch": "x86_64",
-            "uefi": false,
-            "iface_name": "eth0"
-          },
-          "netboot": {
-            "allow_pxe": true,
-            "allow_workflow": true,
-            "osie": {
-              "base_url": "http://localhost/kernels?",
-              "kernel": "5.0.1-fake-version",
-              "initrd": "initramfs.cpio.gz"
-            }
+            "vlan_id": "12"
           }
         }
-      ]
+      ],
+      "metadata": {
+        "state": "active",
+        "bonding_mode": 2,
+        "manufacturer": {
+          "id": "some-id",
+          "slug": "some-slug"
+        },
+        "instance": {
+          "id": "id",
+          "state": "state",
+          "hostname": "hostname",
+          "allow_pxe": true,
+          "rescue": true,
+          "operating_system": {
+            "slug": "slug",
+            "distro": "distro",
+            "version": "version",
+            "image_tag": "image-tag",
+            "os_slug": "os-slug"
+          },
+          "always_pxe": true,
+          "ipxe_script_url": "ipxe-script-url",
+          "ips": [
+            {
+              "address": "192.168.2.4",
+              "netmask": "255.255.255.0",
+              "gateway": "192.168.2.1",
+              "family": 4,
+              "public": true,
+              "management": true
+            }
+          ],
+          "userdata": "userdata",
+          "crypted_root_password": "crypted-root-password",
+          "tags": [
+            "tag"
+          ],
+          "storage": {
+            "disks": [
+              {
+                "device": "device",
+                "wipe_table": true,
+                "partitions": [
+                  {
+                    "label": "label",
+                    "number": 1,
+                    "size": 2,
+                    "start": 3,
+                    "type_guid": "type-guid"
+                  }
+                ]
+              }
+            ],
+            "raid": [
+              {
+                "name": "name",
+                "level": "level",
+                "devices": [
+                  "device"
+                ],
+                "spare": 1
+              }
+            ],
+            "filesystems": [
+              {
+                "mount": {
+                  "device": "device",
+                  "format": "format",
+                  "files": [
+                    {
+                      "path": "path",
+                      "contents": "contents",
+                      "mode": 1,
+                      "uid": 2,
+                      "gid": 3
+                    }
+                  ],
+                  "create": {
+                    "force": true,
+                    "options": [
+                      "option"
+                    ]
+                  },
+                  "point": "point"
+                }
+              }
+            ]
+          },
+          "ssh_keys": [
+            "ssh-key"
+          ],
+          "network_ready": true
+        },
+        "custom": {
+          "preinstalled_operating_system_version": {
+            "slug": "slug",
+            "distro": "distro",
+            "version": "version",
+            "image_tag": "image-tag",
+            "os_slug": "os-slug"
+          },
+          "private_subnets": [
+            "private-subnet"
+          ]
+        },
+        "facility": {
+          "plan_slug": "plan-slug",
+          "plan_version_slug": "plan-version-slug",
+          "facility_code": "facility-code"
+        }
+      },
+      "tinkVersion": 1,
+      "disks": [
+        {
+          "device": "device"
+        }
+      ],
+      "userData": "userdata",
+      "vendorData": "vendordata"
     },
-    "metadata": {
-      "bonding_mode": 0,
-      "manufacturer": {
-        "id": "66b52554-144e-486f-a541-6f2a72fa9043",
-        "slug": "fake systems incorporated"
-      },
-      "instance": {
-        "id": "f9f56dff-098a-4c5f-a51c-19ad35de85d1",
-        "state": "provisioning",
-        "hostname": "boots-test-client",
-        "allow_pxe": true,
-        "rescue": false,
-        "operating_system": {
-          "slug": "FakeOS",
-          "distro": "Fake Linux",
-          "version": "1",
-          "image_tag": "c7f0d804222d91e0ad2edd00158dbbeb",
-          "os_slug": "FakeOS 1.0"
-        },
-        "operating_system_version": {
-          "slug": "FakeOS",
-          "distro": "Fake Linux",
-          "version": "1",
-          "image_tag": "c7f0d804222d91e0ad2edd00158dbbeb",
-          "os_slug": "FakeOS 1.0"
-        },
-        "always_pxe": true,
-        "ipxe_script_url": "http://localhost/scripts",
-        "ips": ["10.10.10.99"],
-        "userdata": "lol hi"
-      },
-      "custom": {
-        "private_subnets": ["192.168.192.0/24"]
-      }
+    "status": {
+      "state": "state"
     }
   }
 ]

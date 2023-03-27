@@ -3,20 +3,13 @@ package job
 import (
 	"bytes"
 	"fmt"
-	"os"
+	"net"
 	"testing"
 
-	"github.com/go-logr/logr"
 	dhcp4 "github.com/packethost/dhcp4-go"
-	assert "github.com/stretchr/testify/require"
-	"github.com/tinkerbell/boots/client"
-	"github.com/tinkerbell/boots/client/standalone"
 	"github.com/tinkerbell/boots/conf"
+	"github.com/tinkerbell/tink/pkg/apis/core/v1alpha1"
 )
-
-func TestMain(m *testing.M) {
-	os.Exit(m.Run())
-}
 
 func TestSetPXEFilename(t *testing.T) {
 	conf.PublicFQDN = "boots-testing.packet.net"
@@ -62,7 +55,7 @@ func TestSetPXEFilename(t *testing.T) {
 		},
 		{
 			name:   "active custom ipxe with allow pxe",
-			hState: "in_use", id: "$instance_id", iState: "active", allowPXE: true,
+			hState: "in_use", id: "$instance_id", iState: "active", allowPXE: true, slug: "custom_ipxe",
 			filename: "undionly.kpxe",
 		},
 		{
@@ -100,31 +93,36 @@ func TestSetPXEFilename(t *testing.T) {
 				tt.plan = "0"
 			}
 
-			instance := &client.Instance{
-				ID:       tt.id,
-				State:    client.InstanceState(tt.iState),
-				AllowPXE: tt.allowPXE,
-				OS: &client.OperatingSystem{
-					OsSlug: tt.slug,
-				},
-				OSV: &client.OperatingSystem{
-					OsSlug: tt.slug,
-				},
-			}
 			j := Job{
-				// Logger: joblog.With("index", i, "hState", tt.hState, "id", tt.id, "iState", tt.iState, "slug", tt.slug, "plan", tt.plan, "allowPXE", tt.allowPXE, "packet", tt.packet, "arm", tt.arm, "uefi", tt.uefi, "filename", tt.filename),
-				Logger: logr.Discard(),
-				hardware: &standalone.HardwareStandalone{
-					ID: "$hardware_id",
-					Metadata: client.Metadata{
-						State: client.HardwareState(tt.hState),
-						Facility: client.Facility{
-							PlanSlug: "baremetal_" + tt.plan,
+				Logger: defaultLogger("debug"),
+				mac:    net.HardwareAddr{0, 0, 0, 0, 0, 0},
+				hardware: &v1alpha1.HardwareSpec{
+					Metadata: &v1alpha1.HardwareMetadata{
+						State: tt.hState,
+						Facility: &v1alpha1.MetadataFacility{
+							PlanSlug: tt.plan,
 						},
-						Instance: instance,
+						Instance: &v1alpha1.MetadataInstance{
+							ID:    tt.id,
+							State: tt.iState,
+							OperatingSystem: &v1alpha1.MetadataInstanceOperatingSystem{
+								Slug:   tt.slug,
+								OsSlug: tt.slug,
+							},
+						},
+					},
+					Interfaces: []v1alpha1.Interface{
+						{
+							Netboot: &v1alpha1.Netboot{
+								AllowPXE: &tt.allowPXE,
+							},
+							DHCP: &v1alpha1.DHCP{
+								MAC:  "00:00:00:00:00:00",
+								UEFI: tt.uefi,
+							},
+						},
 					},
 				},
-				instance:     instance,
 				NextServer:   conf.PublicIPv4,
 				IpxeBaseURL:  conf.PublicFQDN + "/ipxe",
 				BootsBaseURL: conf.PublicFQDN,
@@ -142,80 +140,33 @@ func TestSetPXEFilename(t *testing.T) {
 
 func TestAllowPXE(t *testing.T) {
 	for _, tt := range []struct {
-		want     bool
-		hw       bool
-		instance bool
-		iid      string
+		want bool
+		id   string
 	}{
-		{want: true, hw: true},
-		{want: false, hw: false, instance: true},
-		{want: true, hw: false, instance: true, iid: "id"},
-		{want: false, hw: false, instance: false, iid: "id"},
+		{want: true},
+		{want: false},
 	} {
-		name := fmt.Sprintf("want=%t, hardware=%t, instance=%t, instance_id=%s", tt.want, tt.hw, tt.instance, tt.iid)
+		name := fmt.Sprintf("want=%t", tt.want)
 		t.Run(name, func(t *testing.T) {
 			j := Job{
-				hardware: &standalone.HardwareStandalone{
-					ID: "$hardware_id",
-					Metadata: client.Metadata{
-						Instance: &client.Instance{
-							AllowPXE: tt.hw,
-						},
-					},
-					Network: client.Network{
-						Interfaces: []client.NetworkInterface{
-							{
-								Netboot: client.Netboot{
-									AllowPXE: tt.hw,
-								},
+				mac: net.HardwareAddr{0, 0, 0, 0, 0, 0},
+				hardware: &v1alpha1.HardwareSpec{
+					Interfaces: []v1alpha1.Interface{
+						{
+							Netboot: &v1alpha1.Netboot{
+								AllowPXE: &tt.want,
+							},
+							DHCP: &v1alpha1.DHCP{
+								MAC: "00:00:00:00:00:00",
 							},
 						},
 					},
-				},
-				instance: &client.Instance{
-					ID:       tt.iid,
-					AllowPXE: tt.instance,
 				},
 			}
 			got := j.AllowPXE()
 			if got != tt.want {
 				t.Fatalf("unexpected return, want: %t, got %t", tt.want, got)
 			}
-		})
-	}
-}
-
-func TestIsSpecialOS(t *testing.T) {
-	t.Run("nil instance", func(t *testing.T) {
-		special := IsSpecialOS(nil)
-		assert.Equal(t, false, special)
-	})
-
-	for name, want := range map[string]bool{
-		"custom_ipxe": true,
-		"custom":      true,
-		"vmware_foo":  true,
-		"flatcar_foo": false,
-	} {
-		t.Run("OS-"+name, func(t *testing.T) {
-			instance := &client.Instance{
-				OS: &client.OperatingSystem{
-					Slug: name,
-				},
-				OSV: &client.OperatingSystem{},
-			}
-			got := IsSpecialOS(instance)
-			assert.Equal(t, want, got)
-		})
-		t.Run("OSV-"+name, func(t *testing.T) {
-			instance := &client.Instance{
-				OS: &client.OperatingSystem{},
-				OSV: &client.OperatingSystem{
-					Slug: name,
-				},
-			}
-			got := IsSpecialOS(instance)
-			assert.Equal(t, want, got)
 		})
 	}
 }
