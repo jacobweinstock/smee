@@ -15,14 +15,6 @@ type Finder struct {
 	data []*v1alpha1.Hardware
 }
 
-// HardwareStandalone implements the Hardware interface for standalone operation.
-type HardwareStandalone struct {
-	ID string `json:"id"`
-	//Network     client.Network  `json:"network"`
-	//Metadata    client.Metadata `json:"metadata"`
-	Traceparent string `json:"traceparent"`
-}
-
 // NewHardwareFinder returns a Finder given a JSON file that is formatted as a slice of
 // DiscoverStandalone.
 func NewHardwareFinder(path string) (*Finder, error) {

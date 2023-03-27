@@ -15,7 +15,7 @@ import (
 type Mock Job
 
 // NewMock returns a mock Job with only minimal fields set, it is useful only for tests.
-func NewMock(slug, facility string) Mock {
+func NewMock(slug string) Mock {
 	slugs := strings.Split(slug, ":")
 	slug = slugs[0]
 
